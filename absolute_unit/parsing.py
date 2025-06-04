@@ -209,7 +209,6 @@ class WhitespaceToken(Token):
         return string.whitespace
 
     def consume(self, stream: CharStream):
-        self._token = None
         while (char := stream.peek()) is not None:
             if char not in self.default_alphabet():
                 break

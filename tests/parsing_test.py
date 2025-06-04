@@ -55,7 +55,7 @@ def test_operator_token():
 def test_whitespace_token():
     stream = CharStream("  \t\n\n\r")
     whitespace_token = WhitespaceToken(stream)
-    assert whitespace_token.token is None
+    assert whitespace_token.token == ""
 
 
 def test_unknown_token():
