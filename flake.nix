@@ -11,6 +11,7 @@
     devShells.x86_64-linux.default = pkgs.mkShell {
       packages = with pkgs; [
         (pkgs.python313.withPackages(pypkgs: with pypkgs; [
+          pytest
           pint
         ]))
         ruff
