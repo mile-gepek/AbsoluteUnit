@@ -1,5 +1,5 @@
-from absolute_unit import CharStream
 from absolute_unit.parsing import (
+    CharStream,
     FloatToken,
     OperatorToken,
     OperatorType,
