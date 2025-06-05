@@ -15,7 +15,7 @@
           pint
         ]))
         ruff
-        pyright
+        basedpyright
         mypy
       ];
     };
