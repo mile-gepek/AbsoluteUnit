@@ -237,5 +237,4 @@ def tokenize(s: str) -> Generator[Token, None, None]:
         token: Token | None = Token.from_stream(stream)
         if token is None:
             break
-        if not isinstance(token, WhitespaceToken):
-            yield token
+        yield token
