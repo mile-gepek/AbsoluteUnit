@@ -2,6 +2,7 @@
 This module is used for parsing user input from commands
 """
 
+from __future__ import annotations
 import abc
 import enum
 import string
@@ -64,7 +65,7 @@ class Token(abc.ABC):
         self._end: int = stream.position
 
     @classmethod
-    def from_stream(cls, stream: CharStream) -> Self | None:
+    def from_stream(cls, stream: CharStream) -> Token | None:
         char = stream.peek()
         if char is None:
             return None
