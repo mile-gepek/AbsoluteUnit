@@ -67,16 +67,10 @@ class Token(abc.ABC):
         char = stream.peek()
         if char is None:
             return None
-        if char in FloatToken.default_alphabet():
-            return FloatToken(stream)
-        elif char in UnitToken.default_alphabet():
-            return UnitToken(stream)
-        elif char in ParenToken.default_alphabet():
-            return ParenToken(stream)
-        elif char in OperatorToken.default_alphabet():
-            return OperatorToken(stream)
-        elif char in WhitespaceToken.default_alphabet():
-            return WhitespaceToken(stream)
+        for token_type in cls.token_types:
+            alphabet = token_type.default_alphabet()
+            if alphabet is not None and char in alphabet:
+                return token_type(stream)
         return UnknownToken(stream)
 
     @property
@@ -119,6 +113,7 @@ class Token(abc.ABC):
         alphabet = cls.default_alphabet()
         if alphabet is None:
             return
+        Token.token_types.append(cls)
         Token.total_alphabet += alphabet
 
 
