@@ -208,12 +208,6 @@ class WhitespaceToken(Token):
     def default_alphabet() -> str:
         return string.whitespace
 
-    def consume(self, stream: CharStream):
-        while (char := stream.peek()) is not None:
-            if char not in self.default_alphabet():
-                break
-            stream.advance()
-
 
 class UnknownToken(Token):
     @staticmethod
