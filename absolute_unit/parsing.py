@@ -119,9 +119,6 @@ class Token(abc.ABC):
         Token.total_alphabet += alphabet
 
 
-class InvalidCharacter(Exception): ...
-
-
 class FloatToken(Token):
     @override
     @staticmethod
