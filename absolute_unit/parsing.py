@@ -5,7 +5,7 @@ This module is used for parsing user input from commands
 import abc
 import enum
 import string
-from typing import Self, override
+from typing import ClassVar, Self, override
 from collections.abc import Generator
 
 __all__ = [
@@ -54,7 +54,8 @@ class CharStream:
 
 
 class Token(abc.ABC):
-    total_alphabet: str = ""
+    total_alphabet: ClassVar[str] = ""
+    token_types: ClassVar[list[type[Self]]] = []
 
     def __init__(self, stream: CharStream) -> None:
         self._token: str = ""
