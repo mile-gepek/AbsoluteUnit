@@ -7,7 +7,7 @@ from absolute_unit.parsing import (
     ParenType,
     UnitToken,
     UnknownToken,
-    WhitespaceToken,
+    Whitespace,
     tokenize,
 )
 
@@ -52,10 +52,10 @@ def test_operator_token():
     assert op_token.op_type == OperatorType.DIV
 
 
-def test_whitespace_token():
+def whitespace_test():
     stream = CharStream("  \t\n\n\r")
-    whitespace_token = WhitespaceToken(stream)
-    assert whitespace_token.token == "  \t\n\n\r"
+    whitespace = Whitespace(stream)
+    assert whitespace.token == ""
 
 
 def test_unknown_token():
@@ -70,19 +70,13 @@ def test_batch():
     print(token_strings)
     assert token_strings == [
         "6",
-        " ",
         "ft",
-        " ",
         "in",
-        " ",
         "/",
-        "   ",
         "(",
         "4.3",
         "s",
-        " ",
         "*",
-        " ",
         "13",
         "J",
         ")",

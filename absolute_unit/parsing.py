@@ -197,11 +197,22 @@ class OperatorToken(Token):
         return self._op_type
 
 
-class WhitespaceToken(Token):
+class Whitespace(Token):
+    """
+    Whitespace gets skipped during tokenization
+    """
+
     @override
     @staticmethod
     def default_alphabet() -> str:
         return string.whitespace
+
+    @override
+    def consume(self, stream: CharStream):
+        while char := stream.peek():
+            if not char.isspace():
+                break
+            stream.advance()
 
 
 class UnknownToken(Token):
@@ -226,4 +237,5 @@ def tokenize(s: str) -> Generator[Token, None, None]:
         token: Token | None = Token.from_stream(stream)
         if token is None:
             break
-        yield token
+        if not isinstance(token, Whitespace):
+            yield token
