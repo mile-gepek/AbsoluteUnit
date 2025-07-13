@@ -1,5 +1,6 @@
 from absolute_unit.parsing import (
     CharStream,
+    Token,
     FloatToken,
     OperatorToken,
     OperatorType,
@@ -81,3 +82,13 @@ def test_batch():
         "J",
         ")",
     ]
+
+
+def test_token_span():
+    token_stream = tokenize("6 kilometer / 3 hour")
+    token = next(token_stream)
+    assert token is not None and token.span == (0, 1)
+    token = next(token_stream)
+    assert token is not None and token.span == (2, 11)
+    token = next(token_stream)
+    assert token is not None and token.span == (12, 13)
