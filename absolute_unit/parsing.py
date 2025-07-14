@@ -4,10 +4,15 @@ This module is used for parsing user input from commands
 
 from __future__ import annotations
 import abc
+from collections import deque
 import enum
 import string
+import time
 from typing import ClassVar, Self, override
+from collections.abc import Iterator
 from collections.abc import Generator
+from pint import Quantity
+from pint.facets.plain import PlainQuantity
 
 __all__ = [
     "tokenize",
@@ -50,22 +55,25 @@ class Token(abc.ABC):
     total_alphabet: ClassVar[str] = ""
     token_types: ClassVar[list[type[Self]]] = []
 
-    def __init__(self, stream: CharStream) -> None:
-        self._token: str = ""
-        self._start: int = stream.position
-        self.consume(stream)
-        self._end: int = stream.position
+    def __init__(self, token: str, start: int, end: int) -> None:
+        self._token: str = token
+        self._start: int = start
+        self._end: int = end
 
     @classmethod
     def from_stream(cls, stream: CharStream) -> Token | None:
         char = stream.peek()
         if char is None:
             return None
-        for token_type in cls.token_types:
-            alphabet = token_type.default_alphabet()
+        token_type = UnknownToken
+        for t_type in cls.token_types:
+            alphabet = t_type.default_alphabet()
             if alphabet is not None and char in alphabet:
-                return token_type(stream)
-        return UnknownToken(stream)
+                token_type = t_type
+                break
+        start = stream.position
+        token = token_type.consume(stream)
+        return token_type(token, start, stream.position)
 
     @property
     def token(self) -> str:
@@ -92,16 +100,20 @@ class Token(abc.ABC):
     def default_alphabet() -> str | None:
         return None
 
-    def alphabet(self) -> str | None:
-        return self.default_alphabet()
+    @classmethod
+    def alphabet(cls, curr_token: str) -> str | None:
+        return cls.default_alphabet()
 
-    def consume(self, stream: CharStream):
+    @classmethod
+    def consume(cls, stream: CharStream) -> str:
+        token = ""
         while (char := stream.peek()) is not None:
-            alphabet = self.alphabet()
+            alphabet = cls.alphabet(token)
             if alphabet is None or char not in alphabet:
                 break
-            self._token += char
+            token += char
             stream.advance()
+        return token
 
     def __init_subclass__(cls) -> None:
         alphabet = cls.default_alphabet()
@@ -118,10 +130,11 @@ class FloatToken(Token):
         return string.digits + "."
 
     @override
-    def alphabet(self) -> str:
-        if "." in self._token:
+    @classmethod
+    def alphabet(cls, curr_token: str) -> str:
+        if "." in curr_token:
             return string.digits
-        return self.default_alphabet()
+        return cls.default_alphabet()
 
     def to_float(self) -> float:
         return float(self._token)
@@ -142,13 +155,46 @@ class ParenType(enum.Enum):
     R_BRACKET = "]"
 
     L_BRACE = "{"
-    R_BRACE = ""
+    R_BRACE = "}"
+
+    def is_opening(self) -> bool:
+        return self in [ParenType.L_PAREN, ParenType.L_BRACKET, ParenType.L_BRACE]
+
+    def paren_name(self) -> str:
+        match self:
+            case ParenType.L_PAREN:
+                return "opening parenthesis"
+            case ParenType.R_PAREN:
+                return "closing parenthesis"
+            case ParenType.L_BRACKET:
+                return "opening bracket"
+            case ParenType.R_BRACKET:
+                return "closing bracket"
+            case ParenType.L_BRACE:
+                return "opening brace"
+            case ParenType.R_BRACE:
+                return "closing brace"
+
+    def is_pair(self, other: ParenType) -> bool:
+        match self:
+            case ParenType.L_PAREN:
+                return other == ParenType.R_PAREN
+            case ParenType.R_PAREN:
+                return other == ParenType.L_PAREN
+            case ParenType.L_BRACKET:
+                return other == ParenType.R_BRACKET
+            case ParenType.R_BRACKET:
+                return other == ParenType.L_BRACKET
+            case ParenType.L_BRACE:
+                return other == ParenType.R_BRACE
+            case ParenType.R_BRACE:
+                return other == ParenType.L_BRACE
 
 
 class ParenToken(Token):
-    def __init__(self, stream: CharStream) -> None:
-        super().__init__(stream)
-        self._paren_type: ParenType = ParenType(self._token)
+    def __init__(self, token: str, start: int, end: int) -> None:
+        super().__init__(token, start, end)
+        self._paren_type: ParenType = ParenType(token)
 
     @override
     @staticmethod
@@ -156,10 +202,11 @@ class ParenToken(Token):
         return "()[]{}"
 
     @override
-    def alphabet(self) -> str:
-        if self._token:
+    @classmethod
+    def alphabet(cls, curr_token: str) -> str:
+        if curr_token:
             return ""
-        return self.default_alphabet()
+        return cls.default_alphabet()
 
     @property
     def paren_type(self) -> ParenType:
@@ -175,8 +222,8 @@ class OperatorType(enum.Enum):
 
 
 class OperatorToken(Token):
-    def __init__(self, stream: CharStream) -> None:
-        super().__init__(stream)
+    def __init__(self, token: str, start: int, end: int) -> None:
+        super().__init__(token, start, end)
         self._op_type: OperatorType = OperatorType(self._token)
 
     @override
@@ -185,10 +232,11 @@ class OperatorToken(Token):
         return "+-*/"
 
     @override
-    def alphabet(self) -> str:
-        if not self._token:
-            return self.default_alphabet()
-        if self._token == "*":
+    @classmethod
+    def alphabet(cls, curr_token: str) -> str:
+        if not curr_token:
+            return cls.default_alphabet()
+        if curr_token == "*":
             return "*"
         return ""
 
@@ -208,11 +256,13 @@ class Whitespace(Token):
         return string.whitespace
 
     @override
-    def consume(self, stream: CharStream):
+    @classmethod
+    def consume(cls, stream: CharStream) -> str:
         while char := stream.peek():
             if not char.isspace():
                 break
             stream.advance()
+        return ""
 
 
 class UnknownToken(Token):
@@ -222,15 +272,17 @@ class UnknownToken(Token):
         return None
 
     @override
-    def consume(self, stream: CharStream):
+    @classmethod
+    def consume(cls, stream: CharStream) -> str:
+        token = ""
         while char := stream.peek():
             if char in Token.total_alphabet:
                 break
-            self._token += char
+            token += char
             stream.advance()
+        return token
 
 
-# TODO: rewrite this entire tokenizer owo
 def tokenize(s: str) -> Generator[Token, None, None]:
     stream = CharStream(s)
     while stream:
@@ -239,3 +291,98 @@ def tokenize(s: str) -> Generator[Token, None, None]:
             break
         if not isinstance(token, Whitespace):
             yield token
+
+
+class ParsingError(Exception):
+    def __init__(self, message: str, token: Token):
+        super().__init__(f"Parsing error: {message}")
+        self.token: Token = token
+
+
+class UnknownTokenError(ParsingError):
+    def __init__(self, token: UnknownToken) -> None:
+        super().__init__(f"Unknown syntax: {token}", token)
+
+
+class UnmatchedParenError(ParsingError):
+    def __init__(self, paren_token: ParenToken):
+        name = paren_token.paren_type.paren_name
+        super().__init__(f"Unmatched {name}", paren_token)
+
+
+class UnknownPrimaryError(ParsingError):
+    def __init__(self, token: Token):
+        super().__init__(f"Expected : {token}", token)
+
+
+class InvalidUnaryError(ParsingError):
+    def __init__(self, operator: OperatorToken) -> None:
+        super().__init__(f"Invalid unary operator: {operator}", operator)
+
+
+class ParsingErrorGroup(Exception):
+    def __init__(self, errors: list[ParsingError]) -> None:
+        if not errors:
+            raise ValueError("ParsingError group can not be empty")
+        if len(errors) == 1:
+            message = f"Got error while parsing: {errors[1]}"
+        else:
+            message = f"Got multiple errors while parsing: {errors}"
+        super().__init__(message)
+        self._errors: list[ParsingError] = errors
+
+
+def parse(input: str) -> PlainQuantity[float]:
+    tokens = list(tokenize(input))
+    errors: list[ParsingError] = []
+    unknown_tokens = [t for t in tokens if isinstance(t, UnknownToken)]
+    if unknown_tokens:
+        raise ParsingErrorGroup([UnknownTokenError(t) for t in unknown_tokens])
+    return parse_expr(tokens)
+
+
+def parse_unary(tokens: deque[Token]) -> PlainQuantity[float]:
+    negative = False
+    token = tokens[0]
+    while isinstance(token, OperatorToken):
+        if token.op_type not in (OperatorType.ADD, OperatorType.SUB):
+            raise InvalidUnaryError(token)
+        if token.op_type == OperatorType.SUB:
+            negative = not negative
+        _ = tokens.popleft()
+        token = tokens[0]
+
+    result = parse_primary(tokens)
+    return -result if negative else result
+
+
+def parse_primary(tokens: deque[Token]) -> PlainQuantity[float]:
+    token = tokens.popleft()
+
+    if isinstance(token, FloatToken):
+        return Quantity(float(token.token))
+
+    elif isinstance(token, UnitToken):
+        return Quantity(token.token)
+
+    elif isinstance(token, ParenToken):
+        if not token.paren_type.is_opening():
+            raise UnmatchedParenError(token)
+        group_tokens: deque[Token] = deque()
+        pairs_open = 1
+        t = tokens[0]
+        while tokens:
+            if isinstance(t, ParenToken):
+                if t.paren_type == token.paren_type:
+                    pairs_open += 1
+                elif t.paren_type.is_pair(token.paren_type):
+                    pairs_open -= 1
+            if pairs_open == 0:
+                break
+            group_tokens.append(t)
+            t = tokens.popleft()
+        if pairs_open:
+            raise UnmatchedParenError(token)
+        return parse_expr(group_tokens)
+
+    raise UnknownPrimaryError(token)
