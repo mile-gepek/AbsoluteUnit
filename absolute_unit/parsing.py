@@ -65,7 +65,7 @@ class Token(abc.ABC):
         char = stream.peek()
         if char is None:
             return None
-        token_type = UnknownToken
+        token_type: type[Token] = UnknownToken
         for t_type in cls.token_types:
             alphabet = t_type.default_alphabet()
             if alphabet is not None and char in alphabet:
