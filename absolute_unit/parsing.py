@@ -7,9 +7,7 @@ import abc
 from collections import deque
 import enum
 import string
-import time
 from typing import ClassVar, Self, override
-from collections.abc import Iterator
 from collections.abc import Generator
 from pint import Quantity
 from pint.facets.plain import PlainQuantity
@@ -122,6 +120,14 @@ class Token(abc.ABC):
         Token.token_types.append(cls)
         Token.total_alphabet += alphabet
 
+    @override
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self._token}, {self.span})"
+
+    @override
+    def __repr__(self) -> str:
+        return str(self)
+
 
 class FloatToken(Token):
     @override
@@ -176,19 +182,16 @@ class ParenType(enum.Enum):
                 return "closing brace"
 
     def is_pair(self, other: ParenType) -> bool:
+        return other in self.to_pair()
+
+    def to_pair(self) -> tuple[ParenType, ParenType]:
         match self:
-            case ParenType.L_PAREN:
-                return other == ParenType.R_PAREN
-            case ParenType.R_PAREN:
-                return other == ParenType.L_PAREN
-            case ParenType.L_BRACKET:
-                return other == ParenType.R_BRACKET
-            case ParenType.R_BRACKET:
-                return other == ParenType.L_BRACKET
-            case ParenType.L_BRACE:
-                return other == ParenType.R_BRACE
-            case ParenType.R_BRACE:
-                return other == ParenType.L_BRACE
+            case ParenType.L_PAREN | ParenType.R_PAREN:
+                return (ParenType.L_PAREN, ParenType.R_PAREN)
+            case ParenType.L_BRACKET | ParenType.R_BRACKET:
+                return (ParenType.L_BRACKET, ParenType.R_BRACKET)
+            case ParenType.L_BRACE | ParenType.R_BRACE:
+                return (ParenType.L_BRACE, ParenType.R_BRACE)
 
 
 class ParenToken(Token):
@@ -293,10 +296,185 @@ def tokenize(s: str) -> Generator[Token, None, None]:
             yield token
 
 
+class Expression(abc.ABC):
+    @override
+    def __str__(self) -> str:
+        raise NotImplementedError(f"{self.__class__.__qualname__} does not implement str")
+
+    def evaluate(self) -> PlainQuantity[float]:
+        raise NotImplementedError(f"{self.__class__.__qualname__} does not implement 'evaluate'")
+
+    def human_readable(self) -> str:
+        raise NotImplementedError(f"{self.__class__.__qualname__} does not implement 'human_readable'")
+
+
+class Binary(Expression):
+    def __init__(
+        self,
+        left: Expression | None,
+        right: Expression | None = None,
+        op: OperatorType | None = None,
+    ) -> None:
+        self._left: Expression | None = left
+        self._right: Expression | None = right
+        self._op_type: OperatorType | None = op
+
+    @property
+    def left(self) -> Expression | None:
+        return self._left
+
+    @left.setter
+    def left(self, new_left: Expression | None) -> None:
+        self._left = new_left
+
+    @property
+    def right(self) -> Expression | None:
+        return self._right
+
+    @right.setter
+    def right(self, new_right: Expression | None) -> None:
+        self._right = new_right
+
+    @property
+    def op(self) -> OperatorType | None:
+        return self._op_type
+
+    @op.setter
+    def op(self, new_op: OperatorType | None) -> None:
+        self._op_type = new_op
+
+    @override
+    def __str__(self) -> str:
+        repr = f"Binary({self._left}"
+        if self._op_type is not None:
+            repr += f" {self._op_type.value}"
+        if self._right is not None:
+            repr += f" {self._right}"
+        repr += ")"
+        return repr
+
+    @override
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class Unary(Expression):
+    def __init__(
+        self, value: Expression | None, op: OperatorType | None = None
+    ) -> None:
+        self._value: Expression | None = value
+        self._op_type: OperatorType | None = op
+
+    @property
+    def value(self) -> Expression | None:
+        return self._value
+
+    @value.setter
+    def value(self, new_value: Expression | None) -> None:
+        self._value = new_value
+
+    @property
+    def op(self) -> OperatorType | None:
+        return self._op_type
+
+    @op.setter
+    def op(self, new_op: OperatorType | None) -> None:
+        self._op_type = new_op
+
+    @override
+    def __str__(self) -> str:
+        repr = "Unary("
+        if self._op_type is not None:
+            repr += f"{self._op_type.value}"
+        repr += f"{self._value})"
+        return repr
+
+    @override
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class Primary(Expression, abc.ABC):
+    def __neg__(self) -> Primary:
+        return -self
+
+
+class Float(Primary):
+    def __init__(self, value: float) -> None:
+        self._value: float = value
+
+    @override
+    def __neg__(self) -> Float:
+        return Float(-self._value)
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @override
+    def __str__(self) -> str:
+        return f"Float({self._value})"
+
+    @override
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class Unit(Primary):
+    def __init__(self, unit: str) -> None:
+        self._unit: str = unit
+
+    @override
+    def __neg__(self) -> Unit:
+        return Unit(f"-{self._unit}")
+
+    def unit_str(self) -> str:
+        return self._unit
+
+    @override
+    def __str__(self) -> str:
+        return f"Unit({self._unit})"
+
+
+class PrimaryChain(Primary):
+    def __init__(self, terms: list[Float | Unit]) -> None:
+        self._terms: list[Float | Unit] = terms
+
+    @override
+    def __str__(self) -> str:
+        terms_as_str = ",".join(str(t) for t in self._terms)
+        return f"[{terms_as_str}]"
+
+    @override
+    def human_readable(self) -> str:
+        return " ".join
+
+    @override
+    def evaluate(self) -> PlainQuantity[float]:
+        ...
+
+
+class Group(Expression):
+    def __init__(self, expr: Expression | None, paren_type: ParenType):
+        self._paren_type: ParenType = paren_type
+        self._expr: Expression | None = expr
+
+    @override
+    def __str__(self) -> str:
+        opening, closing = self._paren_type.to_pair()
+        return f"Group({opening.value}{self._expr}{closing.value})"
+
+    @override
+    def evaluate(self) -> PlainQuantity[float]:
+        if self._expr is None:
+            raise EvaluationError("Tried to evaluate None", None)
+        return self._expr.evaluate()
+
+
 class ParsingError(Exception):
-    def __init__(self, message: str, token: Token):
+    def __init__(self, message: str, token: Token | None = None):
         super().__init__(f"Parsing error: {message}")
-        self.token: Token = token
+        self.token: Token | None = token
 
 
 class UnknownTokenError(ParsingError):
@@ -312,7 +490,7 @@ class UnmatchedParenError(ParsingError):
 
 class UnknownPrimaryError(ParsingError):
     def __init__(self, token: Token):
-        super().__init__(f"Expected : {token}", token)
+        super().__init__(f"Expected number, unit or group expression, got: {token}", token)
 
 
 class InvalidUnaryError(ParsingError):
@@ -320,69 +498,171 @@ class InvalidUnaryError(ParsingError):
         super().__init__(f"Invalid unary operator: {operator}", operator)
 
 
+class ExpectedPrimaryError(ParsingError):
+    def __init__(self) -> None:
+        super().__init__("Expected number, unit or group expression, got EOF")
+
+
 class ParsingErrorGroup(Exception):
-    def __init__(self, errors: list[ParsingError]) -> None:
-        if not errors:
-            raise ValueError("ParsingError group can not be empty")
+    def __init__(self, errors: list[ParsingError] | None = None) -> None:
+        if errors is None:
+            errors = []
         if len(errors) == 1:
-            message = f"Got error while parsing: {errors[1]}"
+            message = f"Got error while parsing:\n{errors[0]}"
         else:
-            message = f"Got multiple errors while parsing: {errors}"
+            message = f"Got multiple errors while parsing:\n{errors}"
         super().__init__(message)
         self._errors: list[ParsingError] = errors
 
+    @property
+    def errors(self) -> list[ParsingError]:
+        return self._errors
 
-def parse(input: str) -> PlainQuantity[float]:
+
+class EvaluationError(Exception):
+    def __init__(self, message: str, expression: Expression | None) -> None:
+        if expression is None:
+            expr_format = "None"
+        else:
+            expr_format = expression.human_readable()
+        super().__init__(f"Error evaluating expression {expr_format}")
+        self._expr = expression
+
+
+def parse(input: str) -> Expression | None:
     tokens = list(tokenize(input))
-    errors: list[ParsingError] = []
     unknown_tokens = [t for t in tokens if isinstance(t, UnknownToken)]
     if unknown_tokens:
-        raise ParsingErrorGroup([UnknownTokenError(t) for t in unknown_tokens])
-    return parse_expr(tokens)
+        errors: list[ParsingError] = [UnknownTokenError(t) for t in unknown_tokens]
+        raise ParsingErrorGroup(errors)
+    result = _parse_sum(deque(tokens))
+    return result
 
+def _parse_binary(
+    tokens: deque[Token], ops: tuple[OperatorType, ...]
+) -> Expression | None:
+    errors: list[ParsingError] = []
+    match ops[0]:
+        case OperatorType.ADD | OperatorType.SUB:
+            parse_term = _parse_mul
+        case OperatorType.MUL | OperatorType.DIV:
+            parse_term = _parse_exp
+        case OperatorType.EXP:
+            parse_term = _parse_unary
+    term = None
+    try:
+        term = parse_term(tokens)
+    except ParsingErrorGroup as error_group:
+        errors.extend(error_group.errors)
+    except ParsingError as e:
+        errors.append(e)
+    bin = Binary(left=term)
+    curr_bin = bin
+    prev_bin = bin
+    while tokens:
+        token = tokens[0]
+        if not isinstance(token, OperatorToken):
+            break
+        if token.op_type not in ops:
+            break
+        _ = tokens.popleft()
+        term = None
+        try:
+            term = parse_term(tokens)
+        except ParsingErrorGroup as error_group:
+            errors.extend(error_group.errors)
+        except ParsingError as e:
+            errors.append(e)                
+        curr_bin.right = Binary(term)
+        curr_bin.op = token.op_type
+        prev_bin = curr_bin
+        curr_bin = curr_bin.right
+    if errors:
+        raise ParsingErrorGroup(errors)
+    if bin.op is None:
+        return bin.left
+    if curr_bin.op is None:
+        prev_bin.right = curr_bin.left
+    return bin
 
-def parse_unary(tokens: deque[Token]) -> PlainQuantity[float]:
-    negative = False
-    token = tokens[0]
-    while isinstance(token, OperatorToken):
+def _parse_sum(
+    tokens: deque[Token]
+) -> Expression | None:
+    return _parse_binary(tokens, (OperatorType.ADD, OperatorType.SUB))
+
+def _parse_mul(
+    tokens: deque[Token]
+) -> Expression | None:
+    return _parse_binary(tokens, (OperatorType.MUL, OperatorType.DIV))
+
+def _parse_exp(
+    tokens: deque[Token]
+) -> Expression | None:
+    return _parse_binary(tokens, (OperatorType.EXP,))
+
+def _parse_unary(tokens: deque[Token]) -> Expression | None:
+    if not tokens:
+        raise ExpectedPrimaryError()
+    unary = Unary(None)
+    curr_unary = prev = unary
+    while tokens:
+        token = tokens[0]
+        if not isinstance(token, OperatorToken):
+            primary = _parse_primary(tokens)
+            prev.value = primary
+            break
         if token.op_type not in (OperatorType.ADD, OperatorType.SUB):
             raise InvalidUnaryError(token)
-        if token.op_type == OperatorType.SUB:
-            negative = not negative
+        curr_unary.op = token.op_type
+        curr_unary.value = Unary(None)
+        prev = curr_unary
+        curr_unary = curr_unary.value
         _ = tokens.popleft()
-        token = tokens[0]
+    if unary.op is None:
+        return unary.value
+    return unary
 
-    result = parse_primary(tokens)
-    return -result if negative else result
+def _parse_primary(tokens: deque[Token]) -> Primary | Group:
+    if not tokens:
+        raise ExpectedPrimaryError()
+    token = tokens[0]
 
-
-def parse_primary(tokens: deque[Token]) -> PlainQuantity[float]:
-    token = tokens.popleft()
-
-    if isinstance(token, FloatToken):
-        return Quantity(float(token.token))
-
-    elif isinstance(token, UnitToken):
-        return Quantity(token.token)
-
-    elif isinstance(token, ParenToken):
-        if not token.paren_type.is_opening():
-            raise UnmatchedParenError(token)
+    if isinstance(token, ParenToken):
+        paren_token = token
+        if not paren_token.paren_type.is_opening():
+            raise UnmatchedParenError(paren_token)
+        _ = tokens.popleft()
         group_tokens: deque[Token] = deque()
         pairs_open = 1
-        t = tokens[0]
         while tokens:
-            if isinstance(t, ParenToken):
-                if t.paren_type == token.paren_type:
+            token = tokens.popleft()
+            if isinstance(token, ParenToken):
+                if token.paren_type == paren_token.paren_type:
                     pairs_open += 1
-                elif t.paren_type.is_pair(token.paren_type):
+                elif token.paren_type.is_pair(paren_token.paren_type):
                     pairs_open -= 1
             if pairs_open == 0:
                 break
-            group_tokens.append(t)
-            t = tokens.popleft()
+            group_tokens.append(token)
         if pairs_open:
-            raise UnmatchedParenError(token)
-        return parse_expr(group_tokens)
+            raise UnmatchedParenError(paren_token)
+        expr = _parse_sum(group_tokens)
+        return Group(expr, paren_token.paren_type)
 
-    raise UnknownPrimaryError(token)
+    primaries: list[Float | Unit] = []
+    while tokens:
+        token = tokens[0]
+        if isinstance(token, FloatToken):
+            primaries.append(Float(token.to_float()))
+        elif isinstance(token, UnitToken):
+            primaries.append(Unit(token.token))
+        else:
+            break
+        _ = tokens.popleft()
+    if not primaries:
+        raise UnknownPrimaryError(token)
+    if len(primaries) == 1:
+        return primaries[0]
+    else:
+        return PrimaryChain(primaries)
+
