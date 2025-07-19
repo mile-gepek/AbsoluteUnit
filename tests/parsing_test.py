@@ -1,22 +1,31 @@
-import pytest
+# pyright: reportPrivateUsage=false
+
 from collections import deque
-from absolute_unit import parsing
+
+import pytest
+
 from absolute_unit.parsing import (
     Binary,
     CharStream,
     Float,
-    Token,
     FloatToken,
+    InvalidUnaryError,
     OperatorToken,
     OperatorType,
     ParenToken,
     ParenType,
+    PrimaryChain,
+    Token,
     Unary,
     Unit,
     UnitToken,
+    UnknownPrimaryError,
     UnknownToken,
     UnmatchedParenError,
     Whitespace,
+    _parse_primary,
+    _parse_sum,
+    _parse_unary,
     tokenize,
 )
 
@@ -137,25 +146,54 @@ def test_token_span() -> None:
 
 def test_primary_parse() -> None:
     float_token: deque[Token] = deque([FloatToken("6.68", 0, 0)])
-    parsed = parsing._parse_primary(float_token)
-    assert isinstance(parsed, Float) and parsed.value == 6.68
-    unit_token: deque[Token] = deque([UnitToken("km", 0, 0)])
-    parsed = parsing._parse_primary(unit_token)
-    assert isinstance(parsed, Unit) and parsed.unit_str() == "km"
+    parsed = _parse_primary(float_token)
+    mock_result = Float(6.68)
+    assert parsed == mock_result
 
 
-def test_primary_unmatched_closing_paren() -> None:
+def test_primary_chain() -> None:
+    tokens: deque[Token] = deque(
+        [
+            FloatToken("6.68", 0, 0),
+            UnitToken("km", 0, 0),
+        ]
+    )
+    parsed = _parse_primary(tokens)
+    mock_result = PrimaryChain([Float(6.68), Unit("km")])
+    assert parsed == mock_result
+
+
+def test_primary_group() -> None:
+    tokens: deque[Token] = deque(
+        [
+            ParenToken("(", 0, 0),
+            ParenToken("{", 0, 0),
+            FloatToken("6.68", 0, 0),
+            ParenToken("}", 0, 0),
+            ParenToken(")", 0, 0),
+        ]
+    )
+    parsed = _parse_primary(tokens)
+    mock_result = Float(6.68)
+    assert parsed == mock_result
+
+
+def test_primary_raises_unmatched_closing_paren() -> None:
     tokens: deque[Token] = deque(tokenize(")(())"))
-    with pytest.raises(UnmatchedParenError) as excinfo:
-        _ = parsing._parse_primary(tokens)
-        assert "unmatched closing parenthesis" == str(excinfo.value)
+    with pytest.raises(UnmatchedParenError):
+        _ = _parse_primary(tokens)
 
 
-def test_primary_unmatched_opening_paren() -> None:
-    tokens: deque[Token] = deque(tokenize("[abc * 2"))
-    with pytest.raises(UnmatchedParenError) as excinfo:
-        _ = parsing._parse_primary(tokens)
-        assert "unmatched opening bracket" == str(excinfo.value)
+def test_primary_raises_unmatched_opening_paren() -> None:
+    tokens: deque[Token] = deque([ParenToken("(", 0, 0), UnitToken("bla", 0, 0)])
+    with pytest.raises(UnmatchedParenError):
+        _ = _parse_primary(tokens)
+
+
+def test_primary_raises_unknown_primary_error() -> None:
+    tokens: deque[Token] = deque([OperatorToken("*", 0, 0)])
+    with pytest.raises(UnknownPrimaryError):
+        _ = _parse_primary(tokens)
 
 
 def test_unary_parse() -> None:
@@ -167,13 +205,17 @@ def test_unary_parse() -> None:
             FloatToken("6.3", 0, 0),
         ]
     )
-    parsed = parsing._parse_unary(unary_tokens)
-    assert isinstance(parsed, Unary) and parsed.op == OperatorType.SUB
-    value = parsed.value
-    assert isinstance(value, Unary) and value.op == OperatorType.SUB
-    value = value.value
-    assert isinstance(value, Unary) and value.op == OperatorType.ADD
-    value = parsed.value
+    parsed = _parse_unary(unary_tokens)
+    mock_result = Unary(
+        OperatorType.SUB, Unary(OperatorType.SUB, Unary(OperatorType.ADD, Float(6.3)))
+    )
+    assert parsed == mock_result
+
+
+def test_unary_raises_invalid_unary_error() -> None:
+    tokens: deque[Token] = deque([OperatorToken("*", 0, 0), FloatToken("6.68", 0, 0)])
+    with pytest.raises(InvalidUnaryError):
+        _ = _parse_unary(tokens)
 
 
 def test_binary_parse() -> None:
@@ -185,13 +227,8 @@ def test_binary_parse() -> None:
             FloatToken("3.6", 0, 0),
         ]
     )
-    parsed = parsing._parse_sum(tokens)
-    assert isinstance(parsed, Binary)
-    left = parsed.left
-    assert isinstance(left, Float) and left.value == 4.5
-    assert parsed.op is not None and parsed.op == OperatorType.ADD
-    right = parsed.right
-    assert isinstance(right, Unary)
-    assert right.op is not None and right.op == OperatorType.SUB
-    value = right.value
-    assert isinstance(value, Float) and value.value == 3.6
+    parsed = _parse_sum(tokens)
+    mock_result = Binary(
+        Float(4.5), OperatorType.ADD, Unary(OperatorType.SUB, Float(3.6))
+    )
+    assert parsed == mock_result
