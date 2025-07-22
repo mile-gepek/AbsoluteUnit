@@ -14,18 +14,18 @@ from absolute_unit.parsing import (
     OperatorType,
     ParenToken,
     ParenType,
-    PrimaryChain,
     Token,
     Unary,
     Unit,
     UnitToken,
-    UnknownPrimaryError,
+    UnexpectedPrimaryError,
     UnknownToken,
     UnmatchedParenError,
     Whitespace,
     _parse_primary,
     _parse_sum,
     _parse_unary,
+    _parse_primary_chain,
     tokenize,
 )
 
@@ -137,29 +137,17 @@ def test_tokenize() -> None:
 def test_token_span() -> None:
     token_stream = tokenize("6 kilometer / 3 hour")
     token = next(token_stream)
-    assert token is not None and token.span == (0, 1)
+    assert token is not None and token.span() == (0, 1)
     token = next(token_stream)
-    assert token is not None and token.span == (2, 11)
+    assert token is not None and token.span() == (2, 11)
     token = next(token_stream)
-    assert token is not None and token.span == (12, 13)
+    assert token is not None and token.span() == (12, 13)
 
 
 def test_primary_parse() -> None:
     float_token: deque[Token] = deque([FloatToken("6.68", 0, 0)])
     parsed = _parse_primary(float_token)
     mock_result = Float(6.68)
-    assert parsed == mock_result
-
-
-def test_primary_chain() -> None:
-    tokens: deque[Token] = deque(
-        [
-            FloatToken("6.68", 0, 0),
-            UnitToken("km", 0, 0),
-        ]
-    )
-    parsed = _parse_primary(tokens)
-    mock_result = PrimaryChain([Float(6.68), Unit("km")])
     assert parsed == mock_result
 
 
@@ -192,8 +180,34 @@ def test_primary_raises_unmatched_opening_paren() -> None:
 
 def test_primary_raises_unknown_primary_error() -> None:
     tokens: deque[Token] = deque([OperatorToken("*", 0, 0)])
-    with pytest.raises(UnknownPrimaryError):
+    with pytest.raises(UnexpectedPrimaryError):
         _ = _parse_primary(tokens)
+
+
+def test_primary_chain() -> None:
+    tokens: deque[Token] = deque(
+        [
+            FloatToken("3", 0, 0),
+            UnitToken("m", 0, 0),
+            FloatToken("14", 0, 0),
+            UnitToken("cm", 0, 0),
+        ]
+    )
+    mock_result = Binary(
+        Binary(
+            Float(3),
+            OperatorType.MUL,
+            Unit("m"),
+        ),
+        OperatorType.ADD,
+        Binary(
+            Float(14),
+            OperatorType.MUL,
+            Unit("cm"),
+        ),
+    )
+    parsed = _parse_primary_chain(tokens)
+    assert parsed == mock_result
 
 
 def test_unary_parse() -> None:
