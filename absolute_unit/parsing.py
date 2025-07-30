@@ -605,25 +605,25 @@ class Group(Expression):
 
 class ParsingError(Exception):
     def __init__(self, message: str, span: tuple[int, int] | EOF = _EOF):
-        super().__init__(f"{message} at {span}")
+        super().__init__(message)
         self._span: tuple[int, int] | EOF = span
 
 
 class UnknownTokenError(ParsingError):
     def __init__(self, token: UnknownToken) -> None:
-        super().__init__(f"Unknown syntax: {token}", token.span())
+        super().__init__(f"Unknown syntax: {token}.", token.span())
 
 
 class UnmatchedParenError(ParsingError):
     def __init__(self, paren_token: ParenToken):
         name = paren_token.paren_type.paren_name
-        super().__init__(f"Unmatched {name}", paren_token.span())
+        super().__init__(f"Unmatched {name}.", paren_token.span())
 
 
 class InvalidUnaryError(ParsingError):
     def __init__(self, operator_token: OperatorToken) -> None:
         super().__init__(
-            f"Invalid unary operator: {operator_token}", operator_token.span()
+            f"Invalid unary operator: {operator_token}.", operator_token.span()
         )
 
 
@@ -637,7 +637,7 @@ class InvalidImplicitOperationPair(ParsingError):
         left_name = left_type.__name__.lower()
         right_name = right_type.__name__.lower()
         super().__init__(
-            f"Implicit operations between {left_name} and {right_name} not allowed",
+            f"Implicit operations between {left_name} and {right_name} not allowed.",
             span,
         )
 
@@ -645,20 +645,24 @@ class InvalidImplicitOperationPair(ParsingError):
 class ExpectedPrimaryError(ParsingError):
     def __init__(
         self,
-        expected: type[Primary] | None = None,
+        *,
+        message: str | None = None,
+        expected: type[Float | Unit] | None = None,
         span: tuple[int, int] | EOF = _EOF,
     ) -> None:
-        if expected is None:
-            name = "float, unit or group expression"
-        else:
-            name = expected.__name__.lower()
-        super().__init__(f"Expected {name}", span)
+        if message is None:
+            if expected is None:
+                message = "Expected float, unit or group expression."
+            else:
+                name = expected.__name__.lower()
+                message = f"Expected {name}."
+        super().__init__(message, span)
 
 
 class UnexpectedPrimaryError(ParsingError):
     def __init__(self, token: Token, expected: type[Primary | Group] | None = None):
         if expected is None:
-            name = "float, unit or group expression"
+            name = "float, unit or group expression."
         else:
             name = expected.__name__.lower()
         super().__init__(f"Expected {name}, got: {token.token}", token.span())
@@ -675,13 +679,14 @@ class ParsingErrorGroup(ExceptionGroup):  # noqa: F821
 
 
 class EvaluationError(Exception):
-    def __init__(self, message: str, expression: Expression | None) -> None:
-        if expression is None:
-            expr_format = "None"
-        else:
-            expr_format = expression.__str__()
-        super().__init__(f"Error evaluating expression {expr_format}")
+    def __init__(self, message: str, expression: Expression) -> None:
+        super().__init__(message)
         self._expr: Expression | None = expression
+
+
+class InvalidUnitError(EvaluationError):
+    def __init__(self, message: str, unit: Unit) -> None:
+        super().__init__(message, unit)
 
 
 def parse(input: str) -> Expression:
@@ -922,23 +927,34 @@ def _parse_primary_chain(tokens: deque[Token]) -> Binary | Primary:
     elif len(primaries) == 1:
         return primaries[0]
 
-    # TODO: figure out how I want this to work.
     # Check for any invalid sequences
-    if not isinstance(primaries[0], Float):
-        errors.append(ExpectedPrimaryError(Float, primaries[0].span()))
-    expected: type[Primary] = primaries[0].__class__
-    # for some reason a deque can't be sliced ????
-    for i in range(1, len(primaries) - 1):
-        prim = primaries[i]
+    expected: type[Primary] = Float
+    previous: type[Primary] | None = None
+    for prim in primaries:
         if not isinstance(prim, expected):
-            errors.append(ExpectedPrimaryError(expected, prim.span()))
-        else:
-            if expected is Unit:
-                expected = Float
+            if previous is None:
+                errors.append(
+                    ExpectedPrimaryError(
+                        message="Expected float before unit.", span=prim.span()
+                    )
+                )
             else:
-                expected = Unit
+                expected_name = expected.__name__.lower()
+                previous_name = previous.__name__.lower()
+                errors.append(
+                    ExpectedPrimaryError(
+                        message=f"Expected {expected_name} after {previous_name}.",
+                        span=prim.span(),
+                    )
+                )
+        if isinstance(prim, Float):
+            expected = Unit
+        else:
+            expected = Float
+        previous = prim.__class__
     if not isinstance(primaries[-1], Unit):
-        errors.append(ExpectedPrimaryError(Unit, primaries[-1].span()))
+        errors.append(ExpectedPrimaryError(expected=Unit, span=last_token_span))
+
     if errors:
         raise ParsingErrorGroup(errors)
 

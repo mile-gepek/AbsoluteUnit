@@ -7,6 +7,7 @@ import pytest
 from absolute_unit.parsing import (
     Binary,
     CharStream,
+    ExpectedPrimaryError,
     Float,
     FloatToken,
     InvalidUnaryError,
@@ -14,6 +15,7 @@ from absolute_unit.parsing import (
     OperatorType,
     ParenToken,
     ParenType,
+    ParsingErrorGroup,
     Token,
     Unary,
     Unit,
@@ -144,7 +146,7 @@ def test_token_span() -> None:
     assert token is not None and token.span() == (12, 13)
 
 
-def test_primary_parse() -> None:
+def test_primary_single() -> None:
     float_token: deque[Token] = deque([FloatToken("6.68", 0, 0)])
     parsed = _parse_primary(float_token)
     mock_result = Float(6.68)
@@ -164,24 +166,6 @@ def test_primary_group() -> None:
     parsed = _parse_primary(tokens)
     mock_result = Float(6.68)
     assert parsed == mock_result
-
-
-def test_primary_raises_unmatched_closing_paren() -> None:
-    tokens: deque[Token] = deque(tokenize(")(())"))
-    with pytest.raises(UnmatchedParenError):
-        _ = _parse_primary(tokens)
-
-
-def test_primary_raises_unmatched_opening_paren() -> None:
-    tokens: deque[Token] = deque([ParenToken("(", 0, 0), UnitToken("bla", 0, 0)])
-    with pytest.raises(UnmatchedParenError):
-        _ = _parse_primary(tokens)
-
-
-def test_primary_raises_unknown_primary_error() -> None:
-    tokens: deque[Token] = deque([OperatorToken("*", 0, 0)])
-    with pytest.raises(UnexpectedPrimaryError):
-        _ = _parse_primary(tokens)
 
 
 def test_primary_chain() -> None:
@@ -208,6 +192,59 @@ def test_primary_chain() -> None:
     )
     parsed = _parse_primary_chain(tokens)
     assert parsed == mock_result
+
+
+def test_primary_raises_unmatched_closing_paren() -> None:
+    tokens: deque[Token] = deque(tokenize(")(())"))
+    with pytest.raises(UnmatchedParenError):
+        _ = _parse_primary(tokens)
+
+
+def test_primary_raises_unmatched_opening_paren() -> None:
+    tokens: deque[Token] = deque([ParenToken("(", 0, 0), UnitToken("bla", 0, 0)])
+    with pytest.raises(UnmatchedParenError):
+        _ = _parse_primary(tokens)
+
+
+def test_primary_raises_unknown_primary_error() -> None:
+    tokens: deque[Token] = deque([OperatorToken("*", 0, 0)])
+    with pytest.raises(UnexpectedPrimaryError):
+        _ = _parse_primary(tokens)
+
+
+def test_primary_raises_expected_first_float() -> None:
+    """
+    The chain "m 6 ft" is invalid because the first unit is missing a number in front.
+    """
+    tokens: deque[Token] = deque(
+        [UnitToken("m", 0, 0), FloatToken("6", 0, 0), UnitToken("ft", 0, 0)]
+    )
+    with pytest.raises(ParsingErrorGroup) as exc_info:
+        _ = _parse_primary(tokens)
+    exceptions = exc_info.value.exceptions
+    assert len(exceptions) == 1
+    assert "float before unit" in str(exceptions[0])
+
+
+def test_primary_raises_expected_primary() -> None:
+    """
+    The chain "6 3 ft m" is invalid because we're expecting a unit after the first '6', and a float after 'ft'.
+    """
+    tokens: deque[Token] = deque(
+        [
+            FloatToken("6", 0, 0),
+            FloatToken("3", 0, 0),
+            UnitToken("ft", 0, 0),
+            UnitToken("m", 0, 0),
+        ]
+    )
+    with pytest.raises(ParsingErrorGroup) as exc_info:
+        _ = _parse_primary(tokens)
+    exceptions = exc_info.value.exceptions
+    exc_0 = exceptions[0]
+    assert isinstance(exc_0, ExpectedPrimaryError) and "unit after float" in str(exc_0)
+    exc_1 = exceptions[1]
+    assert isinstance(exc_1, ExpectedPrimaryError) and "float after unit" in str(exc_1)
 
 
 def test_unary_parse() -> None:
