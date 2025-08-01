@@ -242,9 +242,11 @@ def test_primary_raises_expected_primary() -> None:
         _ = _parse_primary(tokens)
     exceptions = exc_info.value.exceptions
     exc_0 = exceptions[0]
-    assert isinstance(exc_0, ExpectedPrimaryError) and "unit after float" in str(exc_0)
+    assert isinstance(exc_0, ExpectedPrimaryError) and "unit after a float" in str(
+        exc_0
+    )
     exc_1 = exceptions[1]
-    assert isinstance(exc_1, ExpectedPrimaryError) and "float after unit" in str(exc_1)
+    assert isinstance(exc_1, ExpectedPrimaryError) and "float before unit" in str(exc_1)
 
 
 def test_unary_parse() -> None:
