@@ -7,6 +7,7 @@ from __future__ import annotations
 import abc
 import enum
 import operator
+import pint
 import string
 from collections import deque
 from collections.abc import Callable, Generator
@@ -20,7 +21,7 @@ __all__ = [
 ]
 
 
-class EOF:
+class _EOF:
     """
     Marker for token/expression spans.
     Used when an expression is expected but there are no more tokens.
@@ -31,7 +32,7 @@ class EOF:
         return "EOF"
 
 
-_EOF = EOF()
+EOF = _EOF()
 
 
 class CharStream:
@@ -509,6 +510,12 @@ class Primary(Expression, abc.ABC):
     def span(self) -> tuple[int, int]:
         return self._span
 
+    @staticmethod
+    def from_token(token: UnitToken | FloatToken) -> Unit | Float:
+        if isinstance(token, UnitToken):
+            return Unit(token.token, token.span())
+        return Float(token.to_float(), token.span())
+
 
 class Float(Primary):
     def __init__(self, value: float, span: tuple[int, int] = (0, 0)) -> None:
@@ -545,22 +552,22 @@ class Float(Primary):
 class Unit(Primary):
     def __init__(self, unit: str, span: tuple[int, int] = (0, 0)) -> None:
         super().__init__(span)
-        self._unit: str = unit
-
-    def unit_str(self) -> str:
-        return self._unit
+        self.unit: str = unit
 
     @override
     def evaluate(self) -> PlainQuantity[float]:
-        return Quantity(self._unit)
+        try:
+            return Quantity(self.unit)
+        except pint.UndefinedUnitError:
+            raise InvalidUnitError(self)
 
     @override
     def __str__(self) -> str:
-        return self._unit
+        return self.unit
 
     @override
     def __repr__(self) -> str:
-        return f"Unit({self._unit})"
+        return f"Unit({self.unit})"
 
     @override
     def __eq__(self, other: object) -> bool:
@@ -570,7 +577,7 @@ class Unit(Primary):
             )
         if not isinstance(other, Unit):
             return False
-        return self._unit == other._unit
+        return self.unit == other.unit
 
 
 class Group(Expression):
@@ -604,9 +611,9 @@ class Group(Expression):
 
 
 class ParsingError(Exception):
-    def __init__(self, message: str, span: tuple[int, int] | EOF = _EOF):
+    def __init__(self, message: str, span: tuple[int, int] | _EOF = EOF):
         super().__init__(message)
-        self._span: tuple[int, int] | EOF = span
+        self.span: tuple[int, int] | _EOF = span
 
 
 class UnknownTokenError(ParsingError):
@@ -616,8 +623,13 @@ class UnknownTokenError(ParsingError):
 
 class UnmatchedParenError(ParsingError):
     def __init__(self, paren_token: ParenToken):
-        name = paren_token.paren_type.paren_name
+        name = paren_token.paren_type.paren_name()
         super().__init__(f"Unmatched {name}.", paren_token.span())
+
+
+class EmptyGroupExpression(ParsingError):
+    def __init__(self, span: tuple[int, int]) -> None:
+        super().__init__("Empty group expression.", span)
 
 
 class InvalidUnaryError(ParsingError):
@@ -627,28 +639,13 @@ class InvalidUnaryError(ParsingError):
         )
 
 
-class InvalidImplicitOperationPair(ParsingError):
-    def __init__(
-        self,
-        left_type: type[Token],
-        right_type: type[Token],
-        span: tuple[int, int],
-    ) -> None:
-        left_name = left_type.__name__.lower()
-        right_name = right_type.__name__.lower()
-        super().__init__(
-            f"Implicit operations between {left_name} and {right_name} not allowed.",
-            span,
-        )
-
-
 class ExpectedPrimaryError(ParsingError):
     def __init__(
         self,
         *,
         message: str | None = None,
         expected: type[Float | Unit] | None = None,
-        span: tuple[int, int] | EOF = _EOF,
+        span: tuple[int, int] | _EOF = EOF,
     ) -> None:
         if message is None:
             if expected is None:
@@ -685,8 +682,8 @@ class EvaluationError(Exception):
 
 
 class InvalidUnitError(EvaluationError):
-    def __init__(self, message: str, unit: Unit) -> None:
-        super().__init__(message, unit)
+    def __init__(self, unit: Unit) -> None:
+        super().__init__(f"Invalid unit {unit}", unit)
 
 
 def parse(input: str) -> Expression:
@@ -739,37 +736,29 @@ def _parse_binary(
         errors.extend(error_group.errors)
     except ParsingError as e:
         errors.append(e)
-    if term is None and not tokens:
-        raise ParsingErrorGroup(errors)
-    terms: list[Binary | Unary | Primary | Group | None] = [term]
-    operators: list[OperatorType] = []
+
     while tokens:
         token = tokens[0]
         if not isinstance(token, OperatorToken) or token.op_type not in ops:
             break
         _ = tokens.popleft()
-        operators.append(token.op_type)
-        term = None
+        op_type = token.op_type
+
+        right = None
         try:
-            term = parse_term(tokens)
+            right = parse_term(tokens)
         except ParsingErrorGroup as error_group:
             errors.extend(error_group.errors)
         except ParsingError as e:
             errors.append(e)
-        if term is None and not tokens:
-            raise ParsingErrorGroup(errors)
-        terms.append(term)
-    while len(terms) >= 2:
-        right = terms.pop()
-        left = terms.pop()
-        if left is None or right is None:
-            raise ParsingErrorGroup(errors)
-        op = operators.pop()
-        binary = Binary(left, op, right)
-        terms.append(binary)
-    if terms[0] is None:
+
+        if term is not None and right is not None:
+            term = Binary(term, op_type, right)
+
+    if errors:
         raise ParsingErrorGroup(errors)
-    return terms[0]
+    assert term is not None
+    return term
 
 
 def _parse_sum(tokens: deque[Token]) -> Binary | Unary | Primary | Group:
@@ -805,15 +794,16 @@ def _parse_unary(tokens: deque[Token]) -> Binary | Unary | Primary | Group:
         if not isinstance(token, OperatorToken):
             value = _parse_mul(tokens)
             break
-        _ = tokens.popleft()
         if token.op_type not in _UNARY_OP_MAP:
             raise InvalidUnaryError(token)
+        _ = tokens.popleft()
         op_list.append(token.op_type)
     else:
         raise ExpectedPrimaryError()
+
     if not op_list:
         return value
-    value = value
+
     while op_list:
         op = op_list.pop()
         value = Unary(op, value)
@@ -845,10 +835,10 @@ def _parse_primary(tokens: deque[Token]) -> Binary | Primary | Group:
     token = tokens[0]
 
     if isinstance(token, ParenToken):
-        paren_token = token
+        opening_pair = token
 
-        if not paren_token.paren_type.is_opening():
-            raise UnmatchedParenError(paren_token)
+        if not opening_pair.paren_type.is_opening():
+            raise UnmatchedParenError(opening_pair)
 
         _ = tokens.popleft()
 
@@ -857,19 +847,43 @@ def _parse_primary(tokens: deque[Token]) -> Binary | Primary | Group:
         while tokens:
             token = tokens.popleft()
             if isinstance(token, ParenToken):
-                if token.paren_type == paren_token.paren_type:
+                if token.paren_type == opening_pair.paren_type:
                     pairs_open += 1
-                elif token.paren_type.is_pair(paren_token.paren_type):
+                elif token.paren_type.is_pair(opening_pair.paren_type):
                     pairs_open -= 1
             if pairs_open == 0:
                 break
             group_tokens.append(token)
 
         if pairs_open:
-            raise UnmatchedParenError(paren_token)
+            raise UnmatchedParenError(opening_pair)
 
-        expr = _parse_sum(group_tokens)
-        return Group(expr, paren_token.paren_type)
+        closing_pair = token
+        if not group_tokens:
+            start = opening_pair.start
+            end = closing_pair.end
+            if start == end:
+                end += 1
+            raise EmptyGroupExpression(span=(start, end))
+
+        # Since groups get parsed without any context of  the outer expression,
+        # they can raise errors EOL errors even when it's not the end of the expression.
+        # e.g. `(9 / ) + (4 * )`
+        #           ^        ^ No tokens left after the operators so they report EOL
+        # We solve this by changing every EOL to a span between the last token and paren
+        last_group_token = group_tokens[-1]
+        try:
+            expr = _parse_sum(group_tokens)
+        except ParsingErrorGroup as err_group:
+            start = last_group_token.end
+            end = closing_pair.start
+            if end == start:
+                end += 1
+            for exc in err_group.errors:
+                if exc.span == EOF:
+                    exc.span = (start, end)
+            raise
+        return Group(expr, opening_pair.paren_type)
 
     return _parse_primary_chain(tokens)
 
@@ -904,60 +918,57 @@ def _parse_primary_chain(tokens: deque[Token]) -> Binary | Primary:
     # last_token_span is used to report where a missing primary was expected but not found.
     # e.g. a sequence like `Float Unit Float Operator` would report the operator as an unexpected primary, since a Float must be followed by a unit.
     primaries: deque[Primary] = deque()
-    last_token_span: tuple[int, int] | EOF = _EOF
-    token: Token | None = None
-    while tokens:
+    if len(tokens) == 1 or not isinstance(tokens[1], (UnitToken, FloatToken)):
         token = tokens[0]
-        if isinstance(token, FloatToken):
-            primaries.append(Float(token.to_float(), token.span()))
-        elif isinstance(token, UnitToken):
-            primaries.append(Unit(token.token, token.span()))
-        else:
-            last_token_span = token.span()
+        if not isinstance(token, (UnitToken, FloatToken)):
+            raise UnexpectedPrimaryError(token)
+        _ = tokens.popleft()
+        return Primary.from_token(token)
+
+    previous_float_error = False
+    previous_unit_error = False
+    while tokens:
+        first = tokens[0]
+        if not isinstance(first, (FloatToken, UnitToken)):
             break
+
+        _ = tokens.popleft()
+        if not isinstance(first, FloatToken):
+            if not previous_float_error:
+                errors.append(
+                    ExpectedPrimaryError(
+                        message=f"Expected float before unit '{first.token}'.",
+                        span=first.span(),
+                    )
+                )
+            previous_float_error = True
+            continue
+
+        second = None
+        second_span = EOF
+        if tokens:
+            second = tokens[0]
+            second_span = second.span()
+        if not isinstance(second, UnitToken):
+            if not previous_unit_error:
+                message = "Expected a unit after a float"
+                if second is not None:
+                    message += f", got '{second.token}'"
+                message += "."
+                errors.append(ExpectedPrimaryError(message=message, span=second_span))
+            previous_unit_error = True
+            continue
         _ = tokens.popleft()
 
-    if not primaries:
-        # if token is None, ending_span will be EOF
-        if token is None:
-            raise ExpectedPrimaryError(span=last_token_span)
-        raise UnexpectedPrimaryError(token)
-
-    # Early exit when we only find one primary.
-    elif len(primaries) == 1:
-        return primaries[0]
-
-    # Check for any invalid sequences
-    expected: type[Primary] = Float
-    previous: type[Primary] | None = None
-    for prim in primaries:
-        if not isinstance(prim, expected):
-            if previous is None:
-                errors.append(
-                    ExpectedPrimaryError(
-                        message="Expected float before unit.", span=prim.span()
-                    )
-                )
-            else:
-                expected_name = expected.__name__.lower()
-                previous_name = previous.__name__.lower()
-                errors.append(
-                    ExpectedPrimaryError(
-                        message=f"Expected {expected_name} after {previous_name}.",
-                        span=prim.span(),
-                    )
-                )
-        if isinstance(prim, Float):
-            expected = Unit
-        else:
-            expected = Float
-        previous = prim.__class__
-    if not isinstance(primaries[-1], Unit):
-        errors.append(ExpectedPrimaryError(expected=Unit, span=last_token_span))
+        primaries.append(Primary.from_token(first))
+        primaries.append(Primary.from_token(second))
+        previous_float_error = False
+        previous_unit_error = False
 
     if errors:
         raise ParsingErrorGroup(errors)
 
+    # Turn collected terms into implicit operations
     while primaries:
         left = primaries.popleft()
         right = primaries.popleft()
