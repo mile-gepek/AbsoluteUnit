@@ -382,6 +382,15 @@ def tokenize(s: str) -> Generator[Token, None, None]:
 
 class Expression(abc.ABC):
     @abc.abstractmethod
+    def start(self) -> int: ...
+
+    @abc.abstractmethod
+    def end(self) -> int: ...
+
+    def span(self) -> tuple[int, int]:
+        return (self.start(), self.end())
+
+    @abc.abstractmethod
     def evaluate(self) -> PlainQuantity[float]: ...
 
     @override
@@ -395,48 +404,32 @@ class Binary(Expression):
         op: OperatorType,
         right: Expression,
     ) -> None:
-        self._left: Expression = left
-        self._right: Expression = right
-        self._op_type: OperatorType = op
+        self.left: Expression = left
+        self.right: Expression = right
+        self.op: OperatorType = op
 
-    @property
-    def left(self) -> Expression:
-        return self._left
+    @override
+    def start(self) -> int:
+        return self.left.start()
 
-    @left.setter
-    def left(self, new_left: Expression) -> None:
-        self._left = new_left
-
-    @property
-    def right(self) -> Expression:
-        return self._right
-
-    @right.setter
-    def right(self, new_right: Expression) -> None:
-        self._right = new_right
-
-    @property
-    def op(self) -> OperatorType:
-        return self._op_type
-
-    @op.setter
-    def op(self, new_op: OperatorType) -> None:
-        self._op_type = new_op
+    @override
+    def end(self) -> int:
+        return self.right.end()
 
     @override
     def evaluate(self) -> PlainQuantity[float]:
         op = _BINARY_OP_MAP[self.op]
-        return op(self._left.evaluate(), self._right.evaluate())
+        return op(self.left.evaluate(), self.right.evaluate())
 
     @override
     def __str__(self) -> str:
-        if isinstance(self._left, Float) and isinstance(self._right, Unit):
-            return f"{self._left}{self._right}"
-        return f"{self._left} {self._op_type.value} {self._right}"
+        if isinstance(self.left, Float) and isinstance(self.right, Unit):
+            return f"{self.left}{self.right}"
+        return f"{self.left} {self.op.value} {self.right}"
 
     @override
     def __repr__(self) -> str:
-        return f"Binary({self._op_type} ({self._left} {self._right}))"
+        return f"Binary({self.op} ({self.left} {self.right}))"
 
     @override
     def __eq__(self, other: object) -> bool:
@@ -447,47 +440,40 @@ class Binary(Expression):
         if not isinstance(other, Binary):
             return False
         return (
-            self._left == other._left
-            and self._op_type == other._op_type
-            and self._right == other._right
+            self.left == other.left
+            and self.op == other.op
+            and self.right == other.right
         )
 
 
 class Unary(Expression):
     def __init__(
-        self, op: OperatorType, value: Binary | Unary | Primary | Group
+        self, op: OperatorType, value: Binary | Unary | Primary | Group, start: int
     ) -> None:
-        self._value: Binary | Unary | Primary | Group = value
-        self._op_type: OperatorType = op
+        self.value: Binary | Unary | Primary | Group = value
+        self.op: OperatorType = op
+        self._start: int = start
 
-    @property
-    def value(self) -> Binary | Unary | Primary | Group:
-        return self._value
+    @override
+    def start(self) -> int:
+        return self._start
 
-    @value.setter
-    def value(self, new_value: Binary | Unary | Primary | Group) -> None:
-        self._value = new_value
-
-    @property
-    def op(self) -> OperatorType:
-        return self._op_type
-
-    @op.setter
-    def op(self, new_op: OperatorType) -> None:
-        self._op_type = new_op
+    @override
+    def end(self) -> int:
+        return self.value.end()
 
     @override
     def evaluate(self) -> PlainQuantity[float]:
-        op = _UNARY_OP_MAP[self._op_type]
-        return op(self._value.evaluate())
+        op = _UNARY_OP_MAP[self.op]
+        return op(self.value.evaluate())
 
     @override
     def __str__(self) -> str:
-        return f"{self._op_type.value}{self._value}"
+        return f"{self.op.value}{self.value}"
 
     @override
     def __repr__(self) -> str:
-        return f"Unary({self._op_type}{self._value})"
+        return f"Unary({self.op}{self.value})"
 
     @override
     def __eq__(self, other: object) -> bool:
@@ -497,29 +483,35 @@ class Unary(Expression):
             )
         if not isinstance(other, Unary):
             return False
-        return self._value == other._value and self._op_type == other._op_type
+        return self.value == other.value and self.op == other.op
 
 
 class Primary(Expression, abc.ABC):
-    def __init__(self, span: tuple[int, int] = (0, 0)) -> None:
-        self._span: tuple[int, int] = span
+    def __init__(self, start: int, end: int) -> None:
+        self._start: int = start
+        self._end: int = end
+
+    @override
+    def start(self) -> int:
+        return self._start
+
+    @override
+    def end(self) -> int:
+        return self._end
 
     def __neg__(self) -> Primary:
         return -self
 
-    def span(self) -> tuple[int, int]:
-        return self._span
-
     @staticmethod
     def from_token(token: UnitToken | FloatToken) -> Unit | Float:
         if isinstance(token, UnitToken):
-            return Unit(token.token, token.span())
-        return Float(token.to_float(), token.span())
+            return Unit(token.token, token.start, token.end)
+        return Float(token.to_float(), token.start, token.end)
 
 
 class Float(Primary):
-    def __init__(self, value: float, span: tuple[int, int] = (0, 0)) -> None:
-        super().__init__(span)
+    def __init__(self, value: float, start: int, end: int) -> None:
+        super().__init__(start, end)
         self._value: float = value
 
     @property
@@ -550,8 +542,8 @@ class Float(Primary):
 
 
 class Unit(Primary):
-    def __init__(self, unit: str, span: tuple[int, int] = (0, 0)) -> None:
-        super().__init__(span)
+    def __init__(self, unit: str, start: int, end: int) -> None:
+        super().__init__(start, end)
         self.unit: str = unit
 
     @override
@@ -559,7 +551,7 @@ class Unit(Primary):
         try:
             return Quantity(self.unit)
         except pint.UndefinedUnitError:
-            raise InvalidUnitError(self)
+            raise UndefinedUnitError(self)
 
     @override
     def __str__(self) -> str:
@@ -581,9 +573,19 @@ class Unit(Primary):
 
 
 class Group(Expression):
-    def __init__(self, expr: Expression, paren_type: ParenType):
+    def __init__(self, expr: Expression, paren_type: ParenType, start: int, end: int):
         self._paren_type: ParenType = paren_type
         self._expr: Expression = expr
+        self._start: int = start
+        self._end: int = end
+
+    @override
+    def start(self) -> int:
+        return self._start
+
+    @override
+    def end(self) -> int:
+        return self._end
 
     @override
     def __str__(self) -> str:
@@ -681,7 +683,7 @@ class EvaluationError(Exception):
         self._expr: Expression | None = expression
 
 
-class InvalidUnitError(EvaluationError):
+class UndefinedUnitError(EvaluationError):
     def __init__(self, unit: Unit) -> None:
         super().__init__(f"Invalid unit {unit}", unit)
 
@@ -788,7 +790,7 @@ def _parse_unary(tokens: deque[Token]) -> Binary | Unary | Primary | Group:
     - `ParsingErrorGroup`
         - Any errors propagated from parsing higher precedence terms (multiplication `_parse_mul`, and exponentiation `_parse_exp`)
     """
-    op_list: list[OperatorType] = []
+    op_list: list[OperatorToken] = []
     while tokens:
         token = tokens[0]
         if not isinstance(token, OperatorToken):
@@ -797,7 +799,7 @@ def _parse_unary(tokens: deque[Token]) -> Binary | Unary | Primary | Group:
         if token.op_type not in _UNARY_OP_MAP:
             raise InvalidUnaryError(token)
         _ = tokens.popleft()
-        op_list.append(token.op_type)
+        op_list.append(token)
     else:
         raise ExpectedPrimaryError()
 
@@ -806,7 +808,7 @@ def _parse_unary(tokens: deque[Token]) -> Binary | Unary | Primary | Group:
 
     while op_list:
         op = op_list.pop()
-        value = Unary(op, value)
+        value = Unary(op.op_type, value, op.start)
     return value
 
 
@@ -883,7 +885,9 @@ def _parse_primary(tokens: deque[Token]) -> Binary | Primary | Group:
                 if exc.span == EOF:
                     exc.span = (start, end)
             raise
-        return Group(expr, opening_pair.paren_type)
+        return Group(
+            expr, opening_pair.paren_type, opening_pair.start, closing_pair.end
+        )
 
     return _parse_primary_chain(tokens)
 
