@@ -2,8 +2,9 @@
 
 from collections import deque
 
-import pytest
+from result import Err, Ok
 
+from pint import Quantity
 from absolute_unit.parsing import (
     Binary,
     CharStream,
@@ -149,8 +150,9 @@ def test_token_span() -> None:
 def test_primary_single() -> None:
     float_token: deque[Token] = deque([FloatToken("6.68", 0, 0)])
     parsed = _parse_primary(float_token)
-    mock_result = Float(6.68)
-    assert parsed == mock_result
+    mock_result = Float(6.68, 0, 0)
+    assert isinstance(parsed, Ok)
+    assert parsed.ok_value == mock_result
 
 
 def test_primary_group() -> None:
@@ -164,8 +166,9 @@ def test_primary_group() -> None:
         ]
     )
     parsed = _parse_primary(tokens)
-    mock_result = Float(6.68)
-    assert parsed == mock_result
+    mock_result = Float(6.68, 0, 0)
+    assert isinstance(parsed, Ok)
+    assert parsed.ok_value == mock_result
 
 
 def test_primary_chain() -> None:
@@ -179,54 +182,62 @@ def test_primary_chain() -> None:
     )
     mock_result = Binary(
         Binary(
-            Float(3),
+            Float(3, 0, 0),
             OperatorType.MUL,
-            Unit("m"),
+            Unit(Quantity("m"), "m", 0, 0),
         ),
         OperatorType.ADD,
         Binary(
-            Float(14),
+            Float(14, 0, 0),
             OperatorType.MUL,
-            Unit("cm"),
+            Unit(Quantity("cm"), "cm", 0, 0),
         ),
     )
     parsed = _parse_primary_chain(tokens)
-    assert parsed == mock_result
+    assert isinstance(parsed, Ok)
+    assert parsed.ok_value == mock_result
 
 
-def test_primary_raises_unmatched_closing_paren() -> None:
+def test_primary_unmatched_closing_paren_error() -> None:
     tokens: deque[Token] = deque(tokenize(")(())"))
-    with pytest.raises(UnmatchedParenError):
-        _ = _parse_primary(tokens)
+    result = _parse_primary(tokens)
+    assert isinstance(result, Err)
+    err = result.err_value
+    assert isinstance(err, UnmatchedParenError)
 
 
-def test_primary_raises_unmatched_opening_paren() -> None:
+def test_primary_unmatched_opening_paren_error() -> None:
     tokens: deque[Token] = deque([ParenToken("(", 0, 0), UnitToken("bla", 0, 0)])
-    with pytest.raises(UnmatchedParenError):
-        _ = _parse_primary(tokens)
+    result = _parse_primary(tokens)
+    assert isinstance(result, Err)
+    err = result.err_value
+    assert isinstance(err, UnmatchedParenError)
 
 
-def test_primary_raises_unknown_primary_error() -> None:
+def test_primary_unknown_primary_error_error() -> None:
     tokens: deque[Token] = deque([OperatorToken("*", 0, 0)])
-    with pytest.raises(UnexpectedPrimaryError):
-        _ = _parse_primary(tokens)
+    result = _parse_primary(tokens)
+    assert isinstance(result, Err)
+    err = result.err_value
+    assert isinstance(err, UnexpectedPrimaryError)
 
 
-def test_primary_raises_expected_first_float() -> None:
+def test_primary_expected_float_error() -> None:
     """
     The chain "m 6 ft" is invalid because the first unit is missing a number in front.
     """
     tokens: deque[Token] = deque(
         [UnitToken("m", 0, 0), FloatToken("6", 0, 0), UnitToken("ft", 0, 0)]
     )
-    with pytest.raises(ParsingErrorGroup) as exc_info:
-        _ = _parse_primary(tokens)
-    exceptions = exc_info.value.exceptions
-    assert len(exceptions) == 1
-    assert "float before unit" in str(exceptions[0])
+    result = _parse_primary(tokens)
+    assert isinstance(result, Err)
+    err = result.err_value
+    assert isinstance(err, ParsingErrorGroup)
+    assert isinstance(err.errors[0], ExpectedPrimaryError)
+    assert "float before unit" in str(err)
 
 
-def test_primary_raises_expected_primary() -> None:
+def test_primary_chain_format_error() -> None:
     """
     The chain "6 3 ft m" is invalid because we're expecting a unit after the first '6', and a float after 'ft'.
     """
@@ -238,15 +249,19 @@ def test_primary_raises_expected_primary() -> None:
             UnitToken("m", 0, 0),
         ]
     )
-    with pytest.raises(ParsingErrorGroup) as exc_info:
-        _ = _parse_primary(tokens)
-    exceptions = exc_info.value.exceptions
-    exc_0 = exceptions[0]
-    assert isinstance(exc_0, ExpectedPrimaryError) and "unit after a float" in str(
-        exc_0
+    result = _parse_primary(tokens)
+    assert isinstance(result, Err)
+    err = result.err_value
+    assert isinstance(err, ParsingErrorGroup)
+    errors = err.errors
+    error_0 = errors[0]
+    assert isinstance(error_0, ExpectedPrimaryError) and "unit after a float" in str(
+        error_0
     )
-    exc_1 = exceptions[1]
-    assert isinstance(exc_1, ExpectedPrimaryError) and "float before unit" in str(exc_1)
+    error_1 = errors[1]
+    assert isinstance(error_1, ExpectedPrimaryError) and "float before unit" in str(
+        error_1
+    )
 
 
 def test_unary_parse() -> None:
@@ -260,15 +275,19 @@ def test_unary_parse() -> None:
     )
     parsed = _parse_unary(unary_tokens)
     mock_result = Unary(
-        OperatorType.SUB, Unary(OperatorType.SUB, Unary(OperatorType.ADD, Float(6.3)))
+        OperatorType.SUB,
+        Unary(OperatorType.SUB, Unary(OperatorType.ADD, Float(6.3, 0, 0), 0), 0),
+        0,
     )
-    assert parsed == mock_result
+    assert isinstance(parsed, Ok)
+    assert parsed.ok_value == mock_result
 
 
-def test_unary_raises_invalid_unary_error() -> None:
+def test_unary_invalid_unary_error() -> None:
     tokens: deque[Token] = deque([OperatorToken("*", 0, 0), FloatToken("6.68", 0, 0)])
-    with pytest.raises(InvalidUnaryError):
-        _ = _parse_unary(tokens)
+    result = _parse_unary(tokens)
+    assert isinstance(result, Err)
+    assert isinstance(result.err_value, InvalidUnaryError)
 
 
 def test_binary_parse() -> None:
@@ -282,6 +301,7 @@ def test_binary_parse() -> None:
     )
     parsed = _parse_sum(tokens)
     mock_result = Binary(
-        Float(4.5), OperatorType.ADD, Unary(OperatorType.SUB, Float(3.6))
+        Float(4.5, 0, 0), OperatorType.ADD, Unary(OperatorType.SUB, Float(3.6, 0, 0), 0)
     )
-    assert parsed == mock_result
+    assert isinstance(parsed, Ok)
+    assert parsed.ok_value == mock_result

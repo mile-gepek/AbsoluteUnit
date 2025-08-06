@@ -5,7 +5,7 @@
     nixpkgs.url      = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, nixpkgs, ... }: let
+  outputs = { nixpkgs, ... }: let
     pkgs = nixpkgs.legacyPackages."x86_64-linux";
   in {
     devShells.x86_64-linux.default = pkgs.mkShell {
@@ -13,6 +13,7 @@
         (pkgs.python313.withPackages(pypkgs: with pypkgs; [
           pytest
           pint
+          result
         ]))
         ruff
         basedpyright
