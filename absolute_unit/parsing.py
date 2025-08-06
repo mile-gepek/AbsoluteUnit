@@ -1044,7 +1044,7 @@ def _parse_primary_chain(
         return Primary.from_token(token)
 
     error_group = ParsingErrorGroup()
-    pairs: list[Binary] = []
+    pairs: deque[Binary] = deque()
     primaries: deque[tuple[Float, Unit]] = deque()
 
     previous_float_error = False
@@ -1102,7 +1102,9 @@ def _parse_primary_chain(
         left, right = primaries.popleft()
         pairs.append(Binary(left, OperatorType.MUL, right))
     while len(pairs) >= 2:
-        right_binary = pairs.pop()
-        left_binary = pairs.pop()
-        pairs.append(Binary(left_binary, OperatorType.ADD, right_binary, implicit=True))
+        left_binary = pairs.popleft()
+        right_binary = pairs.popleft()
+        pairs.appendleft(
+            Binary(left_binary, OperatorType.ADD, right_binary, implicit=True)
+        )
     return Ok(pairs[0])
