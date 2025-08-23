@@ -150,11 +150,12 @@ def test_token_span() -> None:
 
 
 def test_primary_single() -> None:
-    float_token: deque[Token] = deque([FloatToken("6.68", 0, 0)])
-    parsed = _parse_primary(float_token)
+    tokens: deque[Token] = deque([FloatToken("6.68", 0, 0)])
+    parsed = _parse_primary(tokens)
     mock_result = Float(6.68, 0, 0)
     assert isinstance(parsed, Ok)
     assert parsed.ok_value == mock_result
+    assert not tokens
 
 
 def test_primary_group() -> None:
@@ -171,6 +172,7 @@ def test_primary_group() -> None:
     mock_result = Float(6.68, 0, 0)
     assert isinstance(parsed, Ok)
     assert parsed.ok_value == mock_result
+    assert not tokens
 
 
 def test_primary_chain() -> None:
@@ -198,6 +200,7 @@ def test_primary_chain() -> None:
     parsed = _parse_primary_chain(tokens)
     assert isinstance(parsed, Ok)
     assert parsed.ok_value == mock_result
+    assert not tokens
 
 
 def test_primary_unmatched_closing_paren_error() -> None:
@@ -205,7 +208,9 @@ def test_primary_unmatched_closing_paren_error() -> None:
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
     err = result.err_value
-    assert isinstance(err, UnmatchedParenError)
+    assert isinstance(err, ParsingErrorGroup)
+    assert isinstance(err.errors[0], UnmatchedParenError)
+    assert not tokens
 
 
 def test_primary_unmatched_opening_paren_error() -> None:
@@ -214,6 +219,7 @@ def test_primary_unmatched_opening_paren_error() -> None:
     assert isinstance(result, Err)
     err = result.err_value
     assert isinstance(err, UnmatchedParenError)
+    assert not tokens
 
 
 def test_primary_unknown_primary_error_error() -> None:
@@ -237,6 +243,7 @@ def test_primary_expected_float_error() -> None:
     assert isinstance(err, ParsingErrorGroup)
     assert isinstance(err.errors[0], ExpectedPrimaryError)
     assert "number before unit" in str(err)
+    assert not tokens
 
 
 def test_primary_chain_format_error() -> None:
@@ -264,10 +271,11 @@ def test_primary_chain_format_error() -> None:
     assert isinstance(error_1, ExpectedPrimaryError) and "number between units" in str(
         error_1
     )
+    assert not tokens
 
 
 def test_unary_parse() -> None:
-    unary_tokens: deque[Token] = deque(
+    tokens: deque[Token] = deque(
         [
             OperatorToken("-", 0, 0),
             OperatorToken("-", 0, 0),
@@ -275,7 +283,7 @@ def test_unary_parse() -> None:
             FloatToken("6.3", 0, 0),
         ]
     )
-    parsed = _parse_unary(unary_tokens)
+    parsed = _parse_unary(tokens)
     mock_result = Unary(
         OperatorType.SUB,
         Unary(OperatorType.SUB, Unary(OperatorType.ADD, Float(6.3, 0, 0), 0), 0),
@@ -283,6 +291,7 @@ def test_unary_parse() -> None:
     )
     assert isinstance(parsed, Ok)
     assert parsed.ok_value == mock_result
+    assert not tokens
 
 
 def test_unary_invalid_unary_error() -> None:
@@ -307,6 +316,7 @@ def test_binary_parse() -> None:
     )
     assert isinstance(parsed, Ok)
     assert parsed.ok_value == mock_result
+    assert not tokens
 
 
 def test_parse_unit_standalone() -> None:
@@ -315,6 +325,7 @@ def test_parse_unit_standalone() -> None:
     assert isinstance(parsed, Ok)
     mock_result = Unit(Quantity("km"), "km", 0, 0)
     assert parsed.ok_value == mock_result
+    assert not tokens
 
 
 def test_parse_unit_power_float() -> None:
@@ -327,6 +338,7 @@ def test_parse_unit_power_float() -> None:
         Unit(Quantity("km"), "km", 0, 0), OperatorType.EXP, Float(2, 0, 0)
     )
     assert parsed.ok_value == mock_result
+    assert not tokens
 
 
 def test_parse_unit_power_error() -> None:
@@ -336,6 +348,7 @@ def test_parse_unit_power_error() -> None:
     parsed = _parse_unit(tokens, FloatToken("0", 0, 0))
     assert isinstance(parsed, Err)
     assert isinstance(parsed.err_value, ExpectedPrimaryError)
+    assert not tokens
 
 
 def test_parse_unit_power_groupexpr() -> None:
@@ -364,3 +377,4 @@ def test_parse_unit_power_groupexpr() -> None:
         ),
     )
     assert parsed.ok_value == mock_result
+    assert not tokens
