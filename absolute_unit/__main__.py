@@ -28,8 +28,8 @@ if __name__ == "__main__":
                     print(" ", exc)
             continue
         value = parsed.ok_value
-        human_readable = str(value)
-        print(human_readable)
+        print(repr(value))
+        print(value)
         print("=")
         evaluated_str = str(value.evaluate())
         print(evaluated_str)
