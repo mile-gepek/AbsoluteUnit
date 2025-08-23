@@ -11,6 +11,7 @@ from absolute_unit.parsing import (
     ExpectedPrimaryError,
     Float,
     FloatToken,
+    Group,
     InvalidUnaryError,
     OperatorToken,
     OperatorType,
@@ -29,6 +30,7 @@ from absolute_unit.parsing import (
     _parse_sum,
     _parse_unary,
     _parse_primary_chain,
+    _parse_unit,
     tokenize,
 )
 
@@ -234,7 +236,7 @@ def test_primary_expected_float_error() -> None:
     err = result.err_value
     assert isinstance(err, ParsingErrorGroup)
     assert isinstance(err.errors[0], ExpectedPrimaryError)
-    assert "float before unit" in str(err)
+    assert "number before unit" in str(err)
 
 
 def test_primary_chain_format_error() -> None:
@@ -255,11 +257,11 @@ def test_primary_chain_format_error() -> None:
     assert isinstance(err, ParsingErrorGroup)
     errors = err.errors
     error_0 = errors[0]
-    assert isinstance(error_0, ExpectedPrimaryError) and "unit after a float" in str(
+    assert isinstance(error_0, ExpectedPrimaryError) and "unit after the number" in str(
         error_0
     )
     error_1 = errors[1]
-    assert isinstance(error_1, ExpectedPrimaryError) and "float before unit" in str(
+    assert isinstance(error_1, ExpectedPrimaryError) and "number between units" in str(
         error_1
     )
 
@@ -304,4 +306,61 @@ def test_binary_parse() -> None:
         Float(4.5, 0, 0), OperatorType.ADD, Unary(OperatorType.SUB, Float(3.6, 0, 0), 0)
     )
     assert isinstance(parsed, Ok)
+    assert parsed.ok_value == mock_result
+
+
+def test_parse_unit_standalone() -> None:
+    tokens: deque[Token] = deque([UnitToken("km", 0, 0)])
+    parsed = _parse_unit(tokens, FloatToken("0", 0, 0))
+    assert isinstance(parsed, Ok)
+    mock_result = Unit(Quantity("km"), "km", 0, 0)
+    assert parsed.ok_value == mock_result
+
+
+def test_parse_unit_power_float() -> None:
+    tokens: deque[Token] = deque(
+        [UnitToken("km", 0, 0), OperatorToken("**", 0, 0), FloatToken("2", 0, 0)]
+    )
+    parsed = _parse_unit(tokens, FloatToken("0", 0, 0))
+    assert isinstance(parsed, Ok)
+    mock_result = Binary(
+        Unit(Quantity("km"), "km", 0, 0), OperatorType.EXP, Float(2, 0, 0)
+    )
+    assert parsed.ok_value == mock_result
+
+
+def test_parse_unit_power_error() -> None:
+    tokens: deque[Token] = deque(
+        [UnitToken("km", 0, 0), OperatorToken("**", 0, 0), UnitToken("hr", 0, 0)]
+    )
+    parsed = _parse_unit(tokens, FloatToken("0", 0, 0))
+    assert isinstance(parsed, Err)
+    assert isinstance(parsed.err_value, ExpectedPrimaryError)
+
+
+def test_parse_unit_power_groupexpr() -> None:
+    tokens: deque[Token] = deque(
+        [
+            UnitToken("km", 0, 0),
+            OperatorToken("**", 0, 0),
+            ParenToken("(", 0, 0),
+            FloatToken("1", 0, 0),
+            OperatorToken("+", 0, 0),
+            FloatToken("1", 0, 0),
+            ParenToken(")", 0, 0),
+        ]
+    )
+    parsed = _parse_unit(tokens, FloatToken("0", 0, 0))
+    assert isinstance(parsed, Ok)
+    # mock_result: km ** (1 + 1)
+    mock_result = Binary(
+        Unit(Quantity("km"), "km", 0, 0),
+        OperatorType.EXP,
+        Group(
+            Binary(Float(1, 0, 0), OperatorType.ADD, Float(1, 0, 0)),
+            ParenType.L_PAREN,
+            0,
+            0,
+        ),
+    )
     assert parsed.ok_value == mock_result
