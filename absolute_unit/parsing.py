@@ -461,7 +461,7 @@ class Binary(Expression):
 
         if (
             isinstance(self.left, Float)
-            and isinstance(self.right, Unit)
+            and self.right.is_unit()
             and self.op == OperatorType.MUL
         ):
             s = f"{left}{right}"
@@ -485,6 +485,7 @@ class Binary(Expression):
         yield "op", self.op.value
         yield "left", self.left
         yield "right", self.right
+        yield "implicit", self.implicit, False
 
     @override
     def __eq__(self, other: object) -> bool:
@@ -1193,22 +1194,28 @@ def _parse_unit(
 
     # If we have `Unit ** Float` or `Unit ** (<Expr>)` we want to treat this as Binary(Unit, MUL, ...)
     op = tokens[0].op_type
-    if op != OperatorType.EXP:
+    if op not in (OperatorType.EXP, OperatorType.DIV):
         return Ok(unit)
 
-    power_token = tokens[1]
-    _ = tokens.popleft()
+    right_token = tokens[1]
 
-    if isinstance(power_token, ParenToken):
-        power_res = _parse_group(tokens)
-        if isinstance(power_res, Err):
-            return power_res
-        power = power_res.ok_value
-    else:
+    if isinstance(right_token, ParenToken):
         _ = tokens.popleft()
-        if isinstance(power_token, UnitToken):
-            message = f"Expected a number or group expression as exponent, got {power_token.token}"
-            return Err(ExpectedPrimaryError(message=message, span=power_token.span()))
-        power = Float(power_token.to_float(), *power_token.span())
+        right_res = _parse_group(tokens)
+        if isinstance(right_res, Err):
+            return right_res
+        right = right_res.ok_value
+    else:
+        if op == OperatorType.DIV and isinstance(right_token, FloatToken):
+            return Ok(unit)
+        elif op == OperatorType.EXP and isinstance(right_token, UnitToken):
+            message = f"Expected a number or group expression as exponent, got {right_token.token}"
+            return Err(ExpectedPrimaryError(message=message, span=right_token.span()))
+        _ = tokens.popleft()
+        _ = tokens.popleft()
+        right_res = Primary.from_token(right_token)
+        if isinstance(right_res, Err):
+            return right_res
+        right = right_res.ok_value
 
-    return Ok(Binary(unit, op, power))
+    return Ok(Binary(unit, op, right))
