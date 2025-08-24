@@ -9,6 +9,7 @@ import enum
 import operator
 import pint
 import string
+import rich.repr
 from collections import deque
 from collections.abc import Callable, Generator
 from typing import ClassVar, Self, override
@@ -480,6 +481,11 @@ class Binary(Expression):
     def __repr__(self) -> str:
         return f"Binary({self.op.value} ({self.left!r}, {self.right!r}))"
 
+    def __rich_repr__(self) -> rich.repr.Result:
+        yield "op", self.op.value
+        yield "left", self.left
+        yield "right", self.right
+
     @override
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Expression):
@@ -529,6 +535,10 @@ class Unary(Expression):
     @override
     def __repr__(self) -> str:
         return f"Unary({self.op}{self.value!r})"
+
+    def __rich_repr__(self) -> rich.repr.Result:
+        yield "op", self.op.value
+        yield "value", self.value
 
     @override
     def __eq__(self, other: object) -> bool:
@@ -595,6 +605,9 @@ class Float(Primary):
     def __repr__(self) -> str:
         return f"Float({self._value})"
 
+    def __rich_repr__(self) -> rich.repr.Result:
+        yield self.value
+
     @override
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Expression):
@@ -641,6 +654,9 @@ class Unit(Primary):
     @override
     def __repr__(self) -> str:
         return f"Unit({self.unit})"
+
+    def __rich_repr__(self) -> rich.repr.Result:
+        yield self._as_str
 
     @override
     def __eq__(self, other: object) -> bool:
@@ -691,6 +707,9 @@ class Group(Expression):
     def __repr__(self) -> str:
         opening, closing = self.paren_type.to_pair()
         return f"Group({opening.value}{self.expr!r}{closing.value})"
+
+    def __rich_repr__(self) -> rich.repr.Result:
+        yield self.expr
 
     @override
     def __eq__(self, other: object) -> bool:

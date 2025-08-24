@@ -14,6 +14,7 @@
           pytest
           pint
           result
+          rich
         ]))
         ruff
         basedpyright

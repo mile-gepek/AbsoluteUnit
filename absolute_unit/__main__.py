@@ -1,4 +1,5 @@
 from result import Err
+from rich.pretty import pprint
 from .parsing import parse, ParsingErrorGroup, _EOF
 
 if __name__ == "__main__":
@@ -28,7 +29,7 @@ if __name__ == "__main__":
                     print(" ", exc)
             continue
         value = parsed.ok_value
-        print(repr(value))
+        pprint(value, expand_all=True)
         print(value)
         print("=")
         evaluated_str = str(value.evaluate())
