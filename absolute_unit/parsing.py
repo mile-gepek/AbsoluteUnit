@@ -812,28 +812,6 @@ def _parse_expr(
 ) -> Result[Expression, ParsingError | ParsingErrorGroup]:
     return _parse_sum(tokens)
 
-    error_group = ParsingErrorGroup()
-    expressions: deque[Expression] = deque()
-
-    while tokens:
-        expr_result = _parse_sum(tokens)
-        if isinstance(expr_result, Err):
-            error_group.add(expr_result.err_value)
-        else:
-            expressions.append(expr_result.ok_value)
-    if error_group:
-        return Err(error_group)
-
-    while len(expressions) > 1:
-        left = expressions.popleft()
-        right = expressions.popleft()
-        if left.dimensionality() == right.dimensionality():
-            new_expr = Binary(left, OperatorType.ADD, right, implicit=True)
-        else:
-            new_expr = Binary(left, OperatorType.MUL, right, implicit=True)
-        expressions.appendleft(new_expr)
-    return Ok(expressions[0])
-
 
 def _parse_binary(
     tokens: deque[Token], ops: tuple[OperatorType, ...]
