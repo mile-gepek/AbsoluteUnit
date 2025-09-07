@@ -17,9 +17,9 @@ from absolute_unit.parsing import (
     OperatorType,
     ParenToken,
     ParenType,
-    ParsingErrorGroup,
     Token,
     Unary,
+    UndefinedUnitError,
     Unit,
     UnitToken,
     UnexpectedPrimaryError,
@@ -207,9 +207,8 @@ def test_primary_unmatched_closing_paren_error() -> None:
     tokens: deque[Token] = deque(tokenize(")(())"))
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
-    err = result.err_value
-    assert isinstance(err, ParsingErrorGroup)
-    assert isinstance(err.errors[0], UnmatchedParenError)
+    errors = result.err_value
+    assert isinstance(errors[0], UnmatchedParenError)
     assert not tokens
 
 
@@ -217,9 +216,8 @@ def test_primary_unmatched_opening_paren_error() -> None:
     tokens: deque[Token] = deque([ParenToken("(", 0, 0), UnitToken("bla", 0, 0)])
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
-    err = result.err_value
-    assert isinstance(err, ParsingErrorGroup)
-    assert isinstance(err.errors[0], UnmatchedParenError)
+    errors = result.err_value
+    assert isinstance(errors[0], UnmatchedParenError)
     assert not tokens
 
 
@@ -227,8 +225,8 @@ def test_primary_unknown_primary_error_error() -> None:
     tokens: deque[Token] = deque([OperatorToken("*", 0, 0)])
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
-    err = result.err_value
-    assert isinstance(err, UnexpectedPrimaryError)
+    errors = result.err_value
+    assert isinstance(errors[0], UnexpectedPrimaryError)
 
 
 def test_primary_expected_float_error() -> None:
@@ -240,10 +238,9 @@ def test_primary_expected_float_error() -> None:
     )
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
-    err = result.err_value
-    assert isinstance(err, ParsingErrorGroup)
-    assert isinstance(err.errors[0], ExpectedPrimaryError)
-    assert "number before the unit" in str(err)
+    errors = result.err_value
+    assert isinstance(errors[0], ExpectedPrimaryError)
+    assert "number before the unit" in str(errors)
     assert not tokens
 
 
@@ -261,9 +258,7 @@ def test_primary_chain_format_error() -> None:
     )
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
-    err = result.err_value
-    assert isinstance(err, ParsingErrorGroup)
-    errors = err.errors
+    errors = result.err_value
     error_0 = errors[0]
     assert isinstance(error_0, ExpectedPrimaryError) and "between numbers" in str(
         error_0
@@ -299,7 +294,8 @@ def test_unary_invalid_unary_error() -> None:
     tokens: deque[Token] = deque([OperatorToken("*", 0, 0), FloatToken("6.68", 0, 0)])
     result = _parse_unary(tokens)
     assert isinstance(result, Err)
-    assert isinstance(result.err_value, InvalidUnaryError)
+    errors = result.err_value
+    assert isinstance(errors[0], InvalidUnaryError)
 
 
 def test_binary_parse() -> None:
@@ -420,6 +416,27 @@ def test_parse_unit_standalone() -> None:
     assert not tokens
 
 
+def test_invalid_unit() -> None:
+    result = Unit.try_new(UnitToken("fsdjlksdaf", 0, 0))
+    assert isinstance(result, Err)
+    assert isinstance(result.err_value, UndefinedUnitError)
+
+
+def test_parse_unit_invalid_unit() -> None:
+    tokens: deque[Token] = deque(
+        [
+            UnitToken("abc", 0, 0),
+            OperatorToken("/", 0, 0),
+            UnitToken("def", 0, 0),
+        ]
+    )
+    result = _parse_unit(tokens)
+    assert isinstance(result, Err)
+    errors = result.err_value
+    assert isinstance(errors[0], UndefinedUnitError)
+    assert isinstance(errors[1], UndefinedUnitError)
+
+
 def test_parse_unit_power_float() -> None:
     tokens: deque[Token] = deque(
         [UnitToken("km", 0, 0), OperatorToken("**", 0, 0), FloatToken("2", 0, 0)]
@@ -439,9 +456,8 @@ def test_parse_unit_power_error() -> None:
     )
     result = _parse_unit(tokens)
     assert isinstance(result, Err)
-    err = result.err_value
-    assert isinstance(err, ParsingErrorGroup)
-    assert isinstance(err.errors[0], ExpectedPrimaryError)
+    errors = result.err_value
+    assert isinstance(errors[0], ExpectedPrimaryError)
     assert not tokens
 
 
