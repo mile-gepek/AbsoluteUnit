@@ -1,6 +1,6 @@
 from result import Err
 from rich.pretty import pprint
-from .parsing import parse, ParsingErrorGroup, _EOF
+from .parsing import parse, _EOF
 
 if __name__ == "__main__":
     inputs = [
@@ -12,9 +12,8 @@ if __name__ == "__main__":
         leading_whitespace = len(inp) - len(stripped)
         parsed = parse(stripped)
         if isinstance(parsed, Err):
-            errors = ParsingErrorGroup()
-            errors.add(parsed.err_value)
-            for exc in errors.errors:
+            errors = parsed.err_value
+            for exc in errors:
                 print(" " * leading_whitespace, end="")
                 span = exc.span
                 if not isinstance(span, _EOF):
@@ -30,6 +29,8 @@ if __name__ == "__main__":
             continue
         value = parsed.ok_value
         pprint(value, expand_all=True)
+        print(inp)
+        print("=")
         print(value)
         print("=")
         evaluated_str = str(value.evaluate())
