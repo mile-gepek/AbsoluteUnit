@@ -197,7 +197,7 @@ class UnitToken(Token):
     """
     Units to be used for the pint library.
 
-    NOTE: The units are not checked on token creation or when creating the syntax tree, these represent any ascii string
+    NOTE: The units are not checked during tokenization, these represent any ascii string
     """
 
     @override
@@ -987,12 +987,8 @@ def _parse_primary(
     """
     if not tokens:
         return Err(ExpectedPrimaryError())
-    token = tokens[0]
 
-    if isinstance(token, ParenToken):
-        return _parse_group(tokens)
-    else:
-        return _parse_primary_chain(tokens)
+    return _parse_primary_chain(tokens)
 
 
 def _parse_group(
@@ -1062,7 +1058,7 @@ def _parse_group(
 
 def _parse_primary_chain(
     tokens: deque[Token],
-) -> Result[Binary | Primary, ParsingError | ParsingError | ParsingErrorGroup]:
+) -> Result[Binary | Primary | Group, ParsingError | ParsingError | ParsingErrorGroup]:
     """
     Parses a Float, Unit or chain of the form `Float Unit Float Unit ...`, for implicit operations (rules explained below).
 
@@ -1087,135 +1083,207 @@ def _parse_primary_chain(
         - Group of `ExpectedPrimaryError` because a primary chain must follow the format `Float Unit Float Unit`, "out of place" tokens are reported.
     """
     token = tokens[0]
-    if not isinstance(token, (UnitToken, FloatToken)):
+    if not isinstance(token, (UnitToken, FloatToken, ParenToken)):
         return Err(UnexpectedPrimaryError(token))
-    if len(tokens) == 1 or not isinstance(
-        tokens[1], (FloatToken, UnitToken, ParenToken)
-    ):
-        _ = tokens.popleft()
-        return Primary.from_token(token)
 
     error_group = ParsingErrorGroup()
-    primaries: deque[Binary] = deque()
-    previous_float_error = False
+    subexpressions: deque[Binary | Primary | Group] = deque()
+    previous_number_error = False
     previous_unit_error = False
 
+    previous_expr: Expression | None = None
+    previous_token: Token | None = None
+    curr_subexpr: Expression | None = None
     while tokens:
-        first = tokens[0]
-        if isinstance(first, UnitToken):
-            if not previous_float_error:
-                message = f"Expected a number before unit '{first.token}'"
-                error_group.add(
-                    ExpectedPrimaryError(message=message, span=first.span())
-                )
+        token = tokens[0]
+        if isinstance(token, FloatToken):
             _ = tokens.popleft()
-            previous_float_error = True
-            continue
-        elif not isinstance(first, FloatToken):
-            break
-        number = Float(first.to_float(), *first.span())
-        _ = tokens.popleft()
-
-        if not isinstance(tokens[0], UnitToken):
-            break
-        unit_res = _parse_unit(tokens, first)
-        if isinstance(unit_res, Err):
-            if not previous_unit_error:
-                error_group.add(unit_res.err_value)
-            previous_unit_error = True
-            continue
-        unit = unit_res.ok_value
-
-        while tokens:
-            token = tokens[0]
-            if isinstance(token, UnitToken):
-                unit_res = _parse_unit(tokens, first)
-                if isinstance(unit_res, Err):
-                    if not previous_unit_error:
-                        error_group.add(unit_res.err_value)
-                    previous_unit_error = True
-                    continue
-                curr_unit = unit_res.ok_value
-
-                if unit.dimensionality() == curr_unit.dimensionality():
-                    message = "Expected a number between units of the same dimension."
+            number = Float(token.to_float(), *token.span())
+            if isinstance(previous_expr, Float):
+                if not previous_number_error:
+                    message = "Expected a unit expression or operator between numbers."
+                    start = previous_expr.end()
+                    end = number.start()
                     error_group.add(
-                        ExpectedPrimaryError(message=message, span=curr_unit.span())
+                        ExpectedPrimaryError(message=message, span=(start, end))
+                    )
+                    previous_number_error = True
+                previous_expr = None
+                continue
+
+            if curr_subexpr is None or previous_expr is None:
+                curr_subexpr = number
+            elif previous_expr.is_unit():
+                subexpressions.append(curr_subexpr)
+                curr_subexpr = number
+            else:
+                curr_subexpr = Binary(
+                    curr_subexpr, OperatorType.MUL, number, implicit=True
+                )
+            previous_expr = number
+
+        elif isinstance(token, ParenToken):
+            group_res = _parse_group(tokens)
+            if isinstance(group_res, Err):
+                error_group.add(group_res.err_value)
+                previous_expr = None
+                continue
+
+            group = group_res.ok_value
+            if curr_subexpr is None:
+                curr_subexpr = group
+            elif (
+                previous_expr is not None
+                and previous_expr.is_unit()
+                and not group.is_unit()
+            ):
+                subexpressions.append(curr_subexpr)
+                curr_subexpr = group
+            else:
+                curr_subexpr = Binary(
+                    curr_subexpr, OperatorType.MUL, group, implicit=True
+                )
+            previous_expr = group
+
+        elif isinstance(token, UnitToken):
+            unit_res = _parse_unit(tokens)
+            if isinstance(unit_res, Err):
+                error_group.add(unit_res.err_value)
+                previous_expr = None
+                continue
+
+            unit = unit_res.ok_value
+            if (
+                isinstance(previous_expr, Unit)
+                and previous_expr.dimensionality() == unit.dimensionality()
+            ):
+                if not previous_unit_error:
+                    message = "Expected a number between units of the same dimension."
+                    start = previous_expr.end()
+                    end = unit.start()
+                    if start == end:
+                        start -= 1
+                        end += 1
+                    error_group.add(
+                        ExpectedPrimaryError(message=message, span=(start, end))
                     )
                     previous_unit_error = True
-                else:
-                    unit = Binary(unit, OperatorType.MUL, curr_unit, implicit=True)
-            else:
-                break
-            previous_unit_error = False
+                previous_expr = None
+                continue
+            elif (
+                not isinstance(previous_token, (FloatToken, ParenToken))
+                and tokens
+                and isinstance(tokens[0], (FloatToken, ParenToken, UnitToken))
+            ):
+                if not previous_unit_error:
+                    message = f"Expected a number before the unit '{token.token}'."
+                    error_group.add(
+                        ExpectedPrimaryError(message=message, span=token.span())
+                    )
+                    previous_unit_error = True
+                    previous_expr = None
+                continue
 
-        primaries.append(Binary(number, OperatorType.MUL, unit, implicit=True))
-        previous_float_error = False
+            if curr_subexpr is None:
+                curr_subexpr = unit
+            else:
+                curr_subexpr = Binary(
+                    curr_subexpr, OperatorType.MUL, unit, implicit=True
+                )
+            previous_expr = unit
+        else:
+            previous_token = token
+            break
+
+        previous_token = token
+        previous_number_error = False
         previous_unit_error = False
 
     if error_group:
         return Err(error_group)
 
-    while len(primaries) > 1:
-        left = primaries.popleft()
-        right = primaries.popleft()
+    if curr_subexpr is not None:
+        subexpressions.append(curr_subexpr)
+
+    if not subexpressions:
+        if previous_token is None:
+            span = EOF
+        else:
+            span = previous_token.span()
+        return Err(ExpectedPrimaryError(span=span))
+
+    while len(subexpressions) > 1:
+        left = subexpressions.popleft()
+        right = subexpressions.popleft()
         if left.dimensionality() == right.dimensionality():
             op = OperatorType.ADD
         else:
             op = OperatorType.MUL
         new_expr = Binary(left, op, right, implicit=True)
-        primaries.appendleft(new_expr)
-    return Ok(primaries[0])
+        subexpressions.appendleft(new_expr)
+    return Ok(subexpressions[0])
 
 
 def _parse_unit(
-    tokens: deque[Token], last_float_token: FloatToken
+    tokens: deque[Token],
+    exp: bool = False,
 ) -> Result[Unit | Binary, ParsingError | ParsingErrorGroup]:
-    if not tokens:
-        message = f"Expected a unit after '{last_float_token.token}'"
-        return Err(ExpectedPrimaryError(message=message))
     first = tokens[0]
     if not isinstance(first, UnitToken):
-        message = f"Expected a unit after the number '{last_float_token.token}', got '{first.token}'."
-        return Err(ExpectedPrimaryError(message=message, span=first.span()))
+        raise ValueError(f"Expected a UnitToken first, got {first} instead")
 
-    _ = tokens.popleft()
-    unit_res = Unit.try_new(first)
-    if isinstance(unit_res, Err):
-        return unit_res
+    error_group = ParsingErrorGroup()
 
-    unit = unit_res.ok_value
-    if not (
-        len(tokens) >= 2
-        and isinstance(tokens[0], OperatorToken)
-        and isinstance(tokens[1], (FloatToken, UnitToken, ParenToken))
-    ):
-        return Ok(unit)
-
-    # If we have `Unit ** Float` or `Unit ** (<Expr>)` we want to treat this as Binary(Unit, MUL, ...)
-    op = tokens[0].op_type
-    if op not in (OperatorType.EXP, OperatorType.DIV):
-        return Ok(unit)
-
-    right_token = tokens[1]
-
-    if isinstance(right_token, ParenToken):
+    if exp:
+        ops = (OperatorType.EXP,)
         _ = tokens.popleft()
-        right_res = _parse_group(tokens)
-        if isinstance(right_res, Err):
-            return right_res
-        right = right_res.ok_value
+        term = Unit.try_new(first)
+        if isinstance(term, Err):
+            error_group.add(term.err_value)
     else:
-        if op == OperatorType.DIV and isinstance(right_token, FloatToken):
-            return Ok(unit)
-        elif op == OperatorType.EXP and isinstance(right_token, UnitToken):
-            message = f"Expected a number or group expression as exponent, got {right_token.token}"
-            return Err(ExpectedPrimaryError(message=message, span=right_token.span()))
-        _ = tokens.popleft()
-        _ = tokens.popleft()
-        right_res = Primary.from_token(right_token)
-        if isinstance(right_res, Err):
-            return right_res
-        right = right_res.ok_value
+        ops = (OperatorType.MUL, OperatorType.DIV)
+        term = _parse_unit(tokens, exp=True)
+        if isinstance(term, Err):
+            error_group.add(term.err_value)
 
-    return Ok(Binary(unit, op, right))
+    while len(tokens) > 1:
+        op = tokens[0]
+        right_token = tokens[1]
+        if not isinstance(op, OperatorToken) or op.op_type not in ops:
+            break
+        if not isinstance(right_token, (FloatToken, UnitToken, ParenToken)):
+            break
+        if exp:
+            _ = tokens.popleft()
+            if isinstance(right_token, UnitToken):
+                message = f"Expected a number or group as exponent, got '{right_token.token}'."
+                error_group.add(
+                    ExpectedPrimaryError(message=message, span=right_token.span())
+                )
+                _ = tokens.popleft()
+                continue
+            elif isinstance(right_token, FloatToken):
+                _ = tokens.popleft()
+                right = Float(right_token.to_float(), *right_token.span())
+            else:
+                right_res = _parse_group(tokens)
+                if isinstance(right_res, Err):
+                    error_group.add(right_res.err_value)
+                    continue
+                right = right_res.ok_value
+        else:
+            if not isinstance(right_token, UnitToken):
+                break
+            _ = tokens.popleft()
+            right_res = _parse_unit(tokens, exp=True)
+            if isinstance(right_res, Err):
+                error_group.add(right_res.err_value)
+                continue
+            right = right_res.ok_value
+        if isinstance(term, Ok):
+            term = Ok(Binary(term.ok_value, op.op_type, right))
+
+    if error_group:
+        return Err(error_group)
+
+    return term
