@@ -36,6 +36,7 @@ from absolute_unit.parsing import (
 
 
 def test_char_stream() -> None:
+    """Test whether the CharStream iteration works properly."""
     stream = CharStream(" 1.2345 big   string 3.13")
     string = "".join(stream)
     assert string == " 1.2345 big   string 3.13"
@@ -47,6 +48,7 @@ def test_float_token() -> None:
 
 
 def test_float_token_consume() -> None:
+    """Test whether the FloatToken.consume method works as intended."""
     token = Token.from_stream(CharStream("3.393"))
     assert isinstance(token, FloatToken) and token.token == "3.393"
 
@@ -90,6 +92,7 @@ def test_operator_token() -> None:
 
 
 def test_operator_token_consume() -> None:
+    """Primarily intended to check whether ** gets tokenized to OperatorType.MUL."""
     stream = CharStream("*-**/")
     token = Token.from_stream(stream)
     assert isinstance(token, OperatorToken) and token.op_type == OperatorType.MUL
@@ -102,6 +105,7 @@ def test_operator_token_consume() -> None:
 
 
 def test_whitespace_token() -> None:
+    """All whitespace should get ignored."""
     whitespace = Whitespace("", 0, 0)
     assert whitespace.token == ""
 
@@ -116,6 +120,11 @@ def test_whitespace_consume() -> None:
 
 
 def test_unknown_token() -> None:
+    """
+    Anything not in the full Token alphabet is considered unknown.
+
+    These are non-ascii, non-digit and non-operator (+, -, *, /) characters
+    """
     unknown_token = UnknownToken("@#$;<><:", 0, 0)
     assert unknown_token.token == "@#$;<><:"
 
@@ -140,6 +149,11 @@ def test_tokenize() -> None:
 
 
 def test_token_span() -> None:
+    """
+    Test whether the token span matches up with the location in the input string.
+
+    This is important for errors when parsing.
+    """
     token_stream = tokenize("6 kilometer / 3 hour")
     token = next(token_stream)
     assert token is not None and token.span() == (0, 1)
@@ -203,7 +217,7 @@ def test_primary_chain() -> None:
     assert not tokens
 
 
-def test_primary_unmatched_closing_paren_error() -> None:
+def test_group_unmatched_closing_paren_error() -> None:
     tokens: deque[Token] = deque(tokenize(")(())"))
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
@@ -212,7 +226,7 @@ def test_primary_unmatched_closing_paren_error() -> None:
     assert not tokens
 
 
-def test_primary_unmatched_opening_paren_error() -> None:
+def test_group_unmatched_opening_paren_error() -> None:
     tokens: deque[Token] = deque([ParenToken("(", 0, 0), UnitToken("bla", 0, 0)])
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
@@ -221,7 +235,7 @@ def test_primary_unmatched_opening_paren_error() -> None:
     assert not tokens
 
 
-def test_primary_unknown_primary_error_error() -> None:
+def test_primary_unknown_primary_error() -> None:
     tokens: deque[Token] = deque([OperatorToken("*", 0, 0)])
     result = _parse_primary(tokens)
     assert isinstance(result, Err)
@@ -480,7 +494,11 @@ def test_parse_unit_power_groupexpr() -> None:
         Unit(Quantity("km"), "km", 0, 0),
         OperatorType.EXP,
         Group(
-            Binary(Float(1, 0, 0), OperatorType.ADD, Float(1, 0, 0)),
+            Binary(
+                Float(1, 0, 0),
+                OperatorType.ADD,
+                Float(1, 0, 0),
+            ),
             ParenType.L_PAREN,
             0,
             0,
