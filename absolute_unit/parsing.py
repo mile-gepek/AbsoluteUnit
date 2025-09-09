@@ -1094,6 +1094,8 @@ def _parse_primary_chain(
     previous_number_error = False
     previous_unit_error = False
 
+    first = True
+
     previous_expr: Expression | None = None
     previous_token: Token | None = None
     curr_subexpr: Expression | None = None
@@ -1156,7 +1158,16 @@ def _parse_primary_chain(
                 continue
 
             unit = unit_res.ok_value
-            if (
+            if first:
+                if not previous_unit_error:
+                    message = f"Expected a number before the unit '{token.token}'."
+                    error_group.append(
+                        ExpectedPrimaryError(message=message, span=token.span())
+                    )
+                    previous_unit_error = True
+                    previous_expr = None
+                continue
+            elif (
                 isinstance(previous_expr, Unit)
                 and previous_expr.dimensionality() == unit.dimensionality()
             ):
@@ -1173,19 +1184,6 @@ def _parse_primary_chain(
                     previous_unit_error = True
                 previous_expr = None
                 continue
-            elif (
-                not isinstance(previous_token, (FloatToken, ParenToken))
-                and tokens
-                and isinstance(tokens[0], (FloatToken, ParenToken, UnitToken))
-            ):
-                if not previous_unit_error:
-                    message = f"Expected a number before the unit '{token.token}'."
-                    error_group.append(
-                        ExpectedPrimaryError(message=message, span=token.span())
-                    )
-                    previous_unit_error = True
-                    previous_expr = None
-                continue
 
             if curr_subexpr is None:
                 curr_subexpr = unit
@@ -1201,6 +1199,7 @@ def _parse_primary_chain(
         previous_token = token
         previous_number_error = False
         previous_unit_error = False
+        first = False
 
     if error_group:
         return Err(error_group)
@@ -1237,9 +1236,11 @@ def _parse_unit(
 
     error_group: list[ParsingError] = []
 
-    # If I don't put this hint here, basedpyright or ruff freak out
+    # If I don't put this type hint here, basedpyright or ruff freak out
     # about list[UndefinedUnitError] not being a subtype of list[ParsingError]
+    # on the last line of the function
     term: Result[Unit | Binary, list[ParsingError]]
+
     if exp:
         ops = (OperatorType.EXP,)
         _ = tokens.popleft()
