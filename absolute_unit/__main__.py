@@ -1,6 +1,6 @@
 from result import Err
 from rich.pretty import pprint
-from .parsing import parse, _EOF
+from .parsing import parse, _EOL
 
 if __name__ == "__main__":
     inputs = [
@@ -16,7 +16,7 @@ if __name__ == "__main__":
             for exc in errors:
                 print(" " * leading_whitespace, end="")
                 span = exc.span
-                if not isinstance(span, _EOF):
+                if not isinstance(span, _EOL):
                     length = span[1] - span[0]
                     print(" " * span[0], end="")
                     print("^" * length, end="")

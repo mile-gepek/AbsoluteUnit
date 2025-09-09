@@ -24,21 +24,29 @@ __all__ = [
 ]
 
 
-class _EOF:
+class _EOL:
     """
-    Marker for token/expression spans.
-    Used when an expression is expected but there are no more tokens.
+    Marker for end-of-line token/expression spans.
+
+    Used when reporting errors such as expecting expressions after an operator.
+    When printing out errors, this should be remapped to the length of the input.
     """
+
+    # This is probably a dumb way to do this, but I didn't know how else to.
 
     @override
     def __repr__(self) -> str:
         return "EOF"
 
 
-EOF = _EOF()
+EOL = _EOL()
 
 
 class CharStream:
+    """
+    A peekable iterator of characters from the given input string, also with a manual `advance` method.
+    """
+
     def __init__(self, string: str) -> None:
         self._string: str = string
         self._i: int = 0
@@ -99,10 +107,13 @@ class Token(abc.ABC):
         char = stream.peek()
         if char is None:
             return None
+
+        # Any unknown character (not "registered" from any of the token subclasses)
         if char not in cls.total_alphabet:
             start = stream.position
             token_str = UnknownToken.consume(stream)
             return UnknownToken(token_str, start, stream.position)
+
         for token_type in cls.token_types:
             alphabet = token_type.default_alphabet()
             if alphabet is not None and char in alphabet:
@@ -114,16 +125,22 @@ class Token(abc.ABC):
     def token(self) -> str:
         return self._token
 
-    @token.setter
-    def token(self, new_value: str) -> None:
-        self._token = new_value
-
     @property
     def start(self) -> int:
+        """
+        The start of this token in the input string.
+        """
+        # TODO: Tokens (and expressions) currently don't hold a reference to the input string, this should be changed.
+
         return self._start
 
     @property
     def end(self) -> int:
+        """
+        The end of this token in the input string.
+        """
+        # TODO: Tokens (and expressions) currently don't hold a reference to the input string, this should be changed.
+
         return self._end
 
     def span(self) -> tuple[int, int]:
@@ -138,7 +155,10 @@ class Token(abc.ABC):
     def alphabet(cls, curr_token: str) -> str | None:  # pyright: ignore [reportUnusedParameter]
         """
         Context-dependant alphabet.
-        Certain Tokens, such as `OperatorToken`s want to change their alphabet depending on the characters they've already consumed
+        Certain Tokens, such as `OperatorToken`s want to change their alphabet depending on the characters they've already consumed.
+
+        # Example
+        An operator token that has already accepted the character '*', can accept another '*' to make exponentiation.
         """
         return cls.default_alphabet()
 
@@ -146,7 +166,9 @@ class Token(abc.ABC):
     def consume(cls, stream: CharStream) -> str:
         """
         The standard way of grabbing a token from a stream, used by most Token types.
-        Consumes stream characters one by one, stopping when it finds a character which isn't in the Token's `alphabet`
+        Consumes stream characters one by one, stopping when it finds a character which isn't in the Token's `alphabet`.
+
+        Subclasses (concrete token types) can override this method, such as WhitespaceToken or UnknownToken.
         """
         token = ""
         while (char := stream.peek()) is not None:
@@ -174,6 +196,14 @@ class Token(abc.ABC):
 
 
 class FloatToken(Token):
+    """
+    Accepts numbers with the following forms:
+    - '1'
+    - '1.'
+    - '1.2'
+    - '.2'
+    """
+
     @override
     @staticmethod
     def default_alphabet() -> str:
@@ -253,6 +283,7 @@ class ParenType(enum.Enum):
                 return ParenType.L_BRACE == other
 
     def to_pair(self) -> tuple[ParenType, ParenType]:
+        """Return a tuple of the paren pairs matching self"""
         match self:
             case ParenType.L_PAREN | ParenType.R_PAREN:
                 return (ParenType.L_PAREN, ParenType.R_PAREN)
@@ -265,6 +296,8 @@ class ParenType(enum.Enum):
 class ParenToken(Token):
     def __init__(self, token: str, start: int, end: int) -> None:
         super().__init__(token, start, end)
+        # This is a bit scuffed because it takes a string, but tokenization depends on that anyway.
+        # Maybe refactor to only accept ParenType directly.
         self._paren_type: ParenType = ParenType(token)
 
     @override
@@ -314,6 +347,7 @@ _UNARY_OP_MAP: dict[
 class OperatorToken(Token):
     def __init__(self, token: str, start: int, end: int) -> None:
         super().__init__(token, start, end)
+        # Just like ParenToken, acceping a string instead of OperatorType directly is scuffed.
         self._op_type: OperatorType = OperatorType(self._token)
 
     @override
@@ -337,8 +371,12 @@ class OperatorToken(Token):
 
 class Whitespace(Token):
     """
-    Whitespace gets skipped during tokenization
+    Whitespace gets skipped during tokenization.
+
+    Whitespace tokens are always equivalent to the empty string since they're discarded.
     """
+
+    # This should probably be removed and be put into CharStream directly
 
     @override
     @staticmethod
@@ -356,6 +394,10 @@ class Whitespace(Token):
 
 
 class UnknownToken(Token):
+    """
+    Any characters not "registered" by subclassing Token get interpreted as unknown.
+    """
+
     @override
     @staticmethod
     def default_alphabet() -> str | None:
@@ -374,6 +416,9 @@ class UnknownToken(Token):
 
 
 def tokenize(s: str) -> Generator[Token, None, None]:
+    """
+    A lazy iterator to generate tokens from a a given input string.
+    """
     stream = CharStream(s)
     while stream:
         token: Token | None = Token.from_stream(stream)
@@ -385,12 +430,23 @@ def tokenize(s: str) -> Generator[Token, None, None]:
 
 class Expression(abc.ABC):
     @abc.abstractmethod
-    def start(self) -> int: ...
+    def start(self) -> int:
+        """
+        The start of this expression in the input string.
+        """
+        # TODO: Expressions (and tokens) currently don't hold a reference to the input string, this should be changed.
 
     @abc.abstractmethod
-    def end(self) -> int: ...
+    def end(self) -> int:
+        """
+        The end of this expression in the input string.
+        """
+        # TODO: Expressions (and tokens) currently don't hold a reference to the input string, this should be changed.
 
     def span(self) -> tuple[int, int]:
+        """
+        Returns a tuple of the start and end of the expression.
+        """
         return (self.start(), self.end())
 
     @abc.abstractmethod
@@ -402,7 +458,10 @@ class Expression(abc.ABC):
     @abc.abstractmethod
     def evaluate(
         self,
-    ) -> Result[PlainQuantity[float], list[EvaluationError]]: ...
+    ) -> Result[PlainQuantity[float], list[EvaluationError]]:
+        """
+        Evaluate this expression with the global UnitRegistry and context settings.
+        """
 
     @override
     def __eq__(self, other: object) -> bool: ...
@@ -420,7 +479,9 @@ class Binary(Expression):
         self.left: Expression = left
         self.right: Expression = right
         self.op: OperatorType = op
+
         self.implicit: bool = implicit
+        """Whether this operation is implicit e.g. `5km`."""
 
     @classmethod
     def try_new(
@@ -430,6 +491,11 @@ class Binary(Expression):
         right: Expression,
         implicit: bool = False,
     ) -> Result[Self, DimensionalityError]:
+        """
+        Try to create a new Binary expression.
+
+        Returns a DimensionalityError when adding or subtracting expressions with different dimensionalities.
+        """
         if (
             op in (OperatorType.ADD, OperatorType.SUB)
             and left.dimensionality() != right.dimensionality()
@@ -478,6 +544,7 @@ class Binary(Expression):
                 return Err(errors)
 
     def _as_str(self) -> str:
+        # Neatly surrounds the expression with parentheses if it is implicit
         if isinstance(self.left, Binary) and self.implicit:
             left = self.left._as_str()
         else:
@@ -755,9 +822,9 @@ class Group(Expression):
 
 
 class ParsingError(Exception):
-    def __init__(self, message: str, span: tuple[int, int] | _EOF = EOF):
+    def __init__(self, message: str, span: tuple[int, int] | _EOL = EOL):
         super().__init__(message)
-        self.span: tuple[int, int] | _EOF = span
+        self.span: tuple[int, int] | _EOL = span
 
 
 class UnexpectedTokenError(ParsingError):
@@ -788,7 +855,7 @@ class ExpectedPrimaryError(ParsingError):
         self,
         *,
         message: str | None = None,
-        span: tuple[int, int] | _EOF = EOF,
+        span: tuple[int, int] | _EOL = EOL,
     ) -> None:
         if message is None:
             message = "Expected expression."
@@ -970,13 +1037,15 @@ def _parse_primary(
 ) -> Result[Expression, list[ParsingError]]:
     """
     Parses a:
-    - `Group`: any expression in parenthesis, brackets or braces gets parsed recursively
-    - `Float`: a floating point number
-    - `Unit`: a string/identifier, units are not checked while parsing, only while evaluating the tree
-    - "Primary chain": Series of Floats and Units which get parsed with implicit binary operations
+    - `Group`: any expression in parenthesis, brackets or braces gets parsed recursively.
+    - `Float`: a floating point number.
+    - `Unit`: a string/identifier, units.
+    - "Primary chain": Series of Floats and Units which get parsed with implicit binary operations.
         - See `_parse_primary_chain` for details.
 
     # Errors
+    - `InvalidUnitError`
+        - Any units which aren't defined by the unit registry.
     - `ExpectedPrimaryError`
         - We reached the end of the token stream, but we're expecting a primary or a group term.
     - `UnmatchedParenError`
@@ -996,6 +1065,17 @@ def _parse_primary(
 def _parse_group(
     tokens: deque[Token],
 ) -> Result[Group, list[ParsingError]]:
+    """
+    Parses a sequence of tokens surrounded by Paren tokens on the same level, handling nested groups as expected.
+    e.g.
+    ((5 + 3) + 7)
+    Gets turned into one big Group expression, with a smaller one inside.
+
+    # Errors
+    - Any error propagated from the inner expression.
+    - `UnmatchedParenError`
+        - Returned when the first paren is not an opening one, or when the opening paren isn't closed.
+    """
     opening_pair = tokens.popleft()
     if not isinstance(opening_pair, ParenToken):
         raise ValueError(f"Expected a paren token, got {opening_pair} instead")
@@ -1028,8 +1108,9 @@ def _parse_group(
 
     # Since groups get parsed without any context of  the outer expression,
     # they can raise errors EOL errors even when it's not actually the end of the expression.
-    # e.g. `(9 / ) + (4 * )`
-    #           ^        ^ No tokens left after the operators so they report EOL
+    # e.g.
+    # `(9 / ) + (4 * )`
+    #      ^        ^ No tokens left after the operators so they report EOL
     # We solve this by changing every EOL to a span between the last token and paren
     last_group_token = group_tokens[-1]
     expr = _parse_expr(group_tokens)
@@ -1039,13 +1120,8 @@ def _parse_group(
         end = closing_pair.start
         if end == start:
             end += 1
-        if len(errors) == 1:
-            errors = errors[0]
-            if errors.span == EOF:
-                errors.span = (start, end)
-            return Err([errors])
         for err in errors:
-            if err.span == EOF:
+            if err.span == EOL:
                 err.span = (start, end)
         return expr
 
@@ -1062,48 +1138,40 @@ def _parse_group(
 def _parse_primary_chain(
     tokens: deque[Token],
 ) -> Result[Binary | Primary | Group, list[ParsingError]]:
-    """
-    Parses a Float, Unit or chain of the form `Float Unit Float Unit ...`, for implicit operations (rules explained below).
+    # TODO: DOCS.
+    # TODO: this code is fucking disgusting.
 
-    # Parsing rules:
-    - If the algorithm only finds one primary element (a FloatToken or UnitToken) it returns Float or Unit
-    - Otherwise, it tries to parse a "primary chain" of the form `Float Unit Float Unit ...`.
-    - The chain has to start with a Float.
-    - Floats and Units must come in pairs so `3m 14` or `5ft in` are not valid chains.
-    - Units must be "simple" e.g. `km`, `Newton`.. Compound units such as `km/h` are currently not parsed this way.
-    - Only units of the same dimension e.g. `5km 3cm` will get parsed.
-        - Sequences like `5km 3h` will only parse into `5*km`, while `3h` will be left in the deque.
-    # Implicit operations:
-    - When a `Float` comes before a `Unit` they are multiplied. (`3 km` -> `3 * km`).
-    - `Float Unit` pairs get added (`3 ft 4 in` -> `3*ft 4*in` -> `3*ft + 4*in`).
-
-    # Errors
-    - `ExpectedPrimaryError`
-        - We reached the end of the expression, but are still expecting a primary.
-    - `UnexpectedPrimaryError`
-        - First token encountered was not a primary.
-    - `ParsingErrorGroup`
-        - Group of `ExpectedPrimaryError` because a primary chain must follow the format `Float Unit Float Unit`, "out of place" tokens are reported.
-    """
     token = tokens[0]
     if not isinstance(token, (UnitToken, FloatToken, ParenToken)):
         return Err([UnexpectedPrimaryError(token)])
 
     error_group: list[ParsingError] = []
-    subexpressions: deque[Binary | Primary | Group] = deque()
     previous_number_error = False
     previous_unit_error = False
+    # We don't want to report too many errors, so any series of the same error gets ignored.
 
     first = True
+    # If the first token is a Unit, report a 'missing number before unit' error.
 
-    previous_expr: Expression | None = None
+    previous_expr: Float | Unit | Group | Binary | None = None
+    # Binary represents complex units e.g. 'km/h'.
     previous_token: Token | None = None
+
+    subexpressions: deque[Binary | Primary | Group] = deque()
     curr_subexpr: Expression | None = None
+    # A rolling aggregate that gets reset to None upon encountering a number.
+    # All subexpressions are added to `subexpressions`, and later combined based on dimensionality.
     while tokens:
         token = tokens[0]
         if isinstance(token, FloatToken):
             _ = tokens.popleft()
             number = Float(token.to_float(), *token.span())
+
+            # Floats after parens which evalute to numbers (dimensionless Group) get multiplied.
+            # e.g.
+            # (1+2)3 -> (1+2)*3
+            #
+            # Otherwise, they start a new subexpression.
             if isinstance(previous_expr, Float):
                 if not previous_number_error:
                     message = "Expected a unit expression or operator between numbers."
@@ -1113,12 +1181,13 @@ def _parse_primary_chain(
                         ExpectedPrimaryError(message=message, span=(start, end))
                     )
                     previous_number_error = True
-                previous_expr = None
+                    previous_expr = number
                 continue
 
             if curr_subexpr is None or previous_expr is None:
                 curr_subexpr = number
             elif previous_expr.is_unit():
+                # In cases of input like '5ft 9in' this would split it into 2 subexpressions.
                 subexpressions.append(curr_subexpr)
                 curr_subexpr = number
             else:
@@ -1127,14 +1196,16 @@ def _parse_primary_chain(
                 ).unwrap()
             previous_expr = number
 
+        # Dimensionless groups start new subexpressions (just like Floats).
+        # Othewrise, they multiply with the current one.
         elif isinstance(token, ParenToken):
             group_res = _parse_group(tokens)
             if isinstance(group_res, Err):
                 error_group.extend(group_res.err_value)
                 previous_expr = None
                 continue
-
             group = group_res.ok_value
+
             if curr_subexpr is None:
                 curr_subexpr = group
             elif (
@@ -1150,27 +1221,33 @@ def _parse_primary_chain(
                 ).unwrap()
             previous_expr = group
 
+        # Units can not start the primary chain, there must be a float in front of them.
+        # If the current subexpression has different dimensionality than this unit, they are multiplied.
+        # If the previous expression was a group, they are multiplied.
+        # If both are units of the same dimensionality e.g. '1km/h cm/s', an error is reported.
         elif isinstance(token, UnitToken):
             unit_res = _parse_unit(tokens)
             if isinstance(unit_res, Err):
                 error_group.extend(unit_res.err_value)
                 previous_expr = None
                 continue
-
             unit = unit_res.ok_value
+
             if first:
                 if not previous_unit_error:
-                    message = f"Expected a number before the unit '{token.token}'."
+                    message = f"Expected a number before the unit '{unit}'."
                     error_group.append(
-                        ExpectedPrimaryError(message=message, span=token.span())
+                        ExpectedPrimaryError(message=message, span=unit.span())
                     )
                     previous_unit_error = True
-                    previous_expr = None
                 continue
             elif (
                 isinstance(previous_expr, Unit)
                 and previous_expr.dimensionality() == unit.dimensionality()
             ):
+                # Report an error when 2 units of the same dimensionality are found next to each other.
+                # This is done because input like `5ft 9in` looks awkward.
+                # TODO: maybe this should simply multiply.
                 if not previous_unit_error:
                     message = "Expected a number between units of the same dimension."
                     start = previous_expr.end()
@@ -1182,7 +1259,6 @@ def _parse_primary_chain(
                         ExpectedPrimaryError(message=message, span=(start, end))
                     )
                     previous_unit_error = True
-                previous_expr = None
                 continue
 
             if curr_subexpr is None:
@@ -1199,6 +1275,7 @@ def _parse_primary_chain(
         previous_token = token
         previous_number_error = False
         previous_unit_error = False
+        # If everything goes correct, reset error flags
         first = False
 
     if error_group:
@@ -1209,7 +1286,7 @@ def _parse_primary_chain(
 
     if not subexpressions:
         if previous_token is None:
-            span = EOF
+            span = EOL
         else:
             span = previous_token.span()
         return Err([ExpectedPrimaryError(span=span)])
