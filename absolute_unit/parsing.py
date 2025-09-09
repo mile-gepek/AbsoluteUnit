@@ -422,6 +422,21 @@ class Binary(Expression):
         self.op: OperatorType = op
         self.implicit: bool = implicit
 
+    @classmethod
+    def try_new(
+        cls,
+        left: Expression,
+        op: OperatorType,
+        right: Expression,
+        implicit: bool = False,
+    ) -> Result[Self, DimensionalityError]:
+        if (
+            op in (OperatorType.ADD, OperatorType.SUB)
+            and left.dimensionality() != right.dimensionality()
+        ):
+            return Err(DimensionalityError(left, op, right))
+        return Ok(cls(left, op, right, implicit=implicit))
+
     @override
     def start(self) -> int:
         return self.left.start()
@@ -790,6 +805,16 @@ class UndefinedUnitError(ParsingError):
         super().__init__(f"Invalid unit {unit_token.token}", unit_token.span())
 
 
+class DimensionalityError(ParsingError):
+    def __init__(self, left: Expression, op: OperatorType, right: Expression):
+        start = left.start()
+        end = right.end()
+        super().__init__(
+            f"Invalid operation '{op.value}' for expressions with differing dimensions ({left.dimensionality()} {op.value} {right.dimensionality()}).",
+            span=(start, end),
+        )
+
+
 class EvaluationError(Exception):
     def __init__(self, message: str, expression: Expression) -> None:
         super().__init__(message)
@@ -866,7 +891,11 @@ def _parse_binary(
 
         elif op_type is not None:
             if isinstance(term, Ok):
-                term = Ok(Binary(term.ok_value, op_type, right.ok_value))
+                match Binary.try_new(term.ok_value, op_type, right.ok_value):
+                    case Ok(binary):
+                        term = Ok(binary)
+                    case Err(err):
+                        error_group.append(err)
 
     if error_group:
         return Err(error_group)
@@ -1091,9 +1120,9 @@ def _parse_primary_chain(
                 subexpressions.append(curr_subexpr)
                 curr_subexpr = number
             else:
-                curr_subexpr = Binary(
+                curr_subexpr = Binary.try_new(
                     curr_subexpr, OperatorType.MUL, number, implicit=True
-                )
+                ).unwrap()
             previous_expr = number
 
         elif isinstance(token, ParenToken):
@@ -1114,9 +1143,9 @@ def _parse_primary_chain(
                 subexpressions.append(curr_subexpr)
                 curr_subexpr = group
             else:
-                curr_subexpr = Binary(
+                curr_subexpr = Binary.try_new(
                     curr_subexpr, OperatorType.MUL, group, implicit=True
-                )
+                ).unwrap()
             previous_expr = group
 
         elif isinstance(token, UnitToken):
@@ -1161,9 +1190,9 @@ def _parse_primary_chain(
             if curr_subexpr is None:
                 curr_subexpr = unit
             else:
-                curr_subexpr = Binary(
+                curr_subexpr = Binary.try_new(
                     curr_subexpr, OperatorType.MUL, unit, implicit=True
-                )
+                ).unwrap()
             previous_expr = unit
         else:
             previous_token = token
@@ -1193,7 +1222,7 @@ def _parse_primary_chain(
             op = OperatorType.ADD
         else:
             op = OperatorType.MUL
-        new_expr = Binary(left, op, right, implicit=True)
+        new_expr = Binary.try_new(left, op, right, implicit=True).unwrap()
         subexpressions.appendleft(new_expr)
     return Ok(subexpressions[0])
 
@@ -1208,12 +1237,19 @@ def _parse_unit(
 
     error_group: list[ParsingError] = []
 
+    # If I don't put this hint here, basedpyright or ruff freak out
+    # about list[UndefinedUnitError] not being a subtype of list[ParsingError]
+    term: Result[Unit | Binary, list[ParsingError]]
     if exp:
         ops = (OperatorType.EXP,)
         _ = tokens.popleft()
-        term = Unit.try_new(first)
-        if isinstance(term, Err):
-            error_group.append(term.err_value)
+        res = Unit.try_new(first)
+        if isinstance(res, Err):
+            error_group.append(res.err_value)
+            # This is so so so so so dumb
+            term = Err([res.err_value])
+        else:
+            term = res
     else:
         ops = (OperatorType.MUL, OperatorType.DIV)
         term = _parse_unit(tokens, exp=True)
@@ -1255,12 +1291,13 @@ def _parse_unit(
                 continue
             right = right_res.ok_value
         if isinstance(term, Ok):
-            term = Ok(Binary(term.ok_value, op.op_type, right))
+            term = Ok(
+                Binary.try_new(term.ok_value, op.op_type, right).expect(
+                    "This could only fail if it was an exponentation with a unit, which we check for above"
+                )
+            )
 
     if error_group:
         return Err(error_group)
 
-    # I hate this, I tried to make it work by turning UndefinedUnitError into [UndefinedUnitError]
-    # but it still says 'list[UndefinedUnitError] is not a subclass of list[ParsingError]'
-    assert isinstance(term, Ok)
     return term
