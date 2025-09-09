@@ -203,7 +203,7 @@ class UnitToken(Token):
     @override
     @staticmethod
     def default_alphabet() -> str:
-        return string.ascii_letters
+        return string.ascii_letters + "_"
 
 
 class ParenType(enum.Enum):
