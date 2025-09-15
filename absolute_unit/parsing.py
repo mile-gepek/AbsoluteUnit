@@ -17,10 +17,12 @@ from typing import ClassVar, Self, override
 from pint import Quantity
 from pint.facets.plain import PlainQuantity
 from pint.util import UnitsContainer
+
 from result import Result, Ok, Err
 
 __all__ = [
     "tokenize",
+    "parse",
 ]
 
 
@@ -537,6 +539,8 @@ class Binary(Expression):
             errors.extend(left.err_value)
         if isinstance(right, Err):
             errors.extend(right.err_value)
+        elif self.op == OperatorType.DIV and right == 0:
+            errors.append(DivisionByZeroError(self.right))
         match (left, right):
             case Ok(l), Ok(r):
                 return Ok(op(l, r))
@@ -821,10 +825,14 @@ class Group(Expression):
         return self.expr == other
 
 
-class ParsingError(Exception):
+class Error(Exception):
     def __init__(self, message: str, span: tuple[int, int] | _EOL = EOL):
         super().__init__(message)
         self.span: tuple[int, int] | _EOL = span
+
+
+class ParsingError(Error):
+    pass
 
 
 class UnexpectedTokenError(ParsingError):
@@ -872,8 +880,9 @@ class UndefinedUnitError(ParsingError):
         super().__init__(f"Invalid unit {unit_token.token}", unit_token.span())
 
 
+# Dimensionality errors should be caught during parsing
 class DimensionalityError(ParsingError):
-    def __init__(self, left: Expression, op: OperatorType, right: Expression):
+    def __init__(self, left: Expression, op: OperatorType, right: Expression) -> None:
         start = left.start()
         end = right.end()
         super().__init__(
@@ -882,10 +891,19 @@ class DimensionalityError(ParsingError):
         )
 
 
-class EvaluationError(Exception):
-    def __init__(self, message: str, expression: Expression) -> None:
-        super().__init__(message)
-        self._expr: Expression | None = expression
+# Evaluation errors
+
+
+class EvaluationError(Error):
+    pass
+
+
+class DivisionByZeroError(EvaluationError):
+    def __init__(self, expression: Expression) -> None:
+        super().__init__(
+            f"Tried dividing by zero (Expression '{expression}' evaluates to 0).",
+            expression.span(),
+        )
 
 
 def parse(input: str) -> Result[Expression, list[ParsingError]]:
