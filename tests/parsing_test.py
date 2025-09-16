@@ -506,3 +506,11 @@ def test_parse_unit_power_groupexpr() -> None:
     )
     assert parsed.ok_value == mock_result
     assert not tokens
+
+
+def test_binary_dimensionality_error() -> None:
+    left = Float(1.0, 0, 0)
+    right = Unit(Quantity("km"), "km", 0, 0)
+    op = OperatorType.ADD
+    result = Binary.try_new(left, op, right)
+    assert isinstance(result, Err)
