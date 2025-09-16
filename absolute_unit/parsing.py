@@ -934,7 +934,7 @@ def format_errors(errors: Sequence[Error], input_len: int) -> str:
         # Accounts for extra padding to show errors at the end of input (expected expressions and so on).
         line_length = input_len + 3
     else:
-        line_length = input_len
+        line_length = input_len + 1
 
     for error in errors:
         if isinstance(error.span, _EOL):
