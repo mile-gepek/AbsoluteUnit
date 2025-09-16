@@ -1,38 +1,48 @@
-from result import Err
-from rich.pretty import pprint
-from .parsing import parse, _EOL
+import logging
+import disnake
+import os
+
+from disnake.ext import commands
+from pint import PintError
+from result import Err, Ok, Result
+
+from absolute_unit import parsing
+
+from dotenv import load_dotenv
+
+_ = load_dotenv()
+
+logger = logging.getLogger("disnake")
+logger.setLevel(logging.DEBUG)
+handler = logging.FileHandler(filename="disnake.log", encoding="utf-8", mode="w")
+handler.setFormatter(
+    logging.Formatter("%(asctime)s:%(levelname)s:%(name)s: %(message)s")
+)
+logger.addHandler(handler)
+
+bot = commands.InteractionBot(
+    test_guilds=[1417274294773223468],
+)
+
+
+@bot.slash_command()
+async def convert(
+    interaction: disnake.GuildCommandInteraction[commands.Bot], input: str, target: str
+):
+    embed = disnake.Embed()
+    embed.footer.text = (
+        "If you are getting unexpected results, try using explicit operations."
+    )
+    parsing_result = parsing.parse(input)
+    if isinstance(parsing_result, Err):
+        errors = parsing_result.err_value
+        errors_formatted = parsing.format_errors(errors, len(input))
+
+
+@bot.event
+async def on_ready() -> None:
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})\n")
+
 
 if __name__ == "__main__":
-    inputs = [
-        "3.6 * km + 14 * m + [(57 * inch / 27)] ** 1",
-        "4.5 + -3.6",
-    ]
-    while inp := input().rstrip():
-        stripped = inp.strip()
-        leading_whitespace = len(inp) - len(stripped)
-        parsed = parse(stripped)
-        if isinstance(parsed, Err):
-            errors = parsed.err_value
-            for exc in errors:
-                print(" " * leading_whitespace, end="")
-                span = exc.span
-                if not isinstance(span, _EOL):
-                    length = span[1] - span[0]
-                    print(" " * span[0], end="")
-                    print("^" * length, end="")
-                    print(" " * (len(stripped) - span[1] + 4), end="")
-                    print(exc)
-                else:
-                    print(" " * len(stripped), end="")
-                    print(" ^", end="")
-                    print(" ", exc)
-            continue
-        value = parsed.ok_value
-        pprint(value, expand_all=True)
-        print(inp)
-        print("=")
-        print(value)
-        print("=")
-        evaluated_str = str(value.evaluate())
-        print(evaluated_str)
-        print("-" * len(evaluated_str))
+    bot.run(os.getenv("DISCORD_APPLICATION_TOKEN"))

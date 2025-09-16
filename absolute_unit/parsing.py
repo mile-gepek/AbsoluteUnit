@@ -11,7 +11,7 @@ import pint
 import string
 import rich.repr
 from collections import deque
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from typing import ClassVar, Self, override
 
 from pint import Quantity
@@ -23,6 +23,12 @@ from result import Result, Ok, Err
 __all__ = [
     "tokenize",
     "parse",
+    "format_errors",
+    "Error",
+    "ParsingError",
+    "EvaluationError",
+    "EOL",
+    "_EOL",
 ]
 
 
@@ -533,22 +539,24 @@ class Binary(Expression):
     def evaluate(self) -> Result[PlainQuantity[float], list[EvaluationError]]:
         op = _BINARY_OP_MAP[self.op]
         errors: list[EvaluationError] = []
+
         left = self.left.evaluate()
         right = self.right.evaluate()
         if isinstance(left, Err):
             errors.extend(left.err_value)
         if isinstance(right, Err):
             errors.extend(right.err_value)
-        elif self.op == OperatorType.DIV and right == 0:
+
+        elif self.op == OperatorType.DIV and right.ok_value == 0:
             errors.append(DivisionByZeroError(self.right))
-        match (left, right):
-            case Ok(l), Ok(r):
-                return Ok(op(l, r))
-            case _:
-                return Err(errors)
+
+        if errors:
+            return Err(errors)
+        return Ok(op(left.unwrap(), right.unwrap()))
 
     def _as_str(self) -> str:
-        # Neatly surrounds the expression with parentheses if it is implicit
+        """Neatly surrounds the expression with parentheses if it is implicit."""
+
         if isinstance(self.left, Binary) and self.implicit:
             left = self.left._as_str()
         else:
@@ -713,13 +721,17 @@ class Float(Primary):
 
     @override
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Expression):
+        if not isinstance(other, (Expression, float)):
             raise TypeError(
                 f"Can not compare {self.__class__.__qualname__} and {other.__class__.__qualname__}"
             )
-        if not isinstance(other, Float):
-            return False
-        return self._value == other._value
+        match other:
+            case Float():
+                return self._value == other._value
+            case float():
+                return self._value == other
+            case _:
+                return False
 
 
 class Unit(Primary):
@@ -904,6 +916,37 @@ class DivisionByZeroError(EvaluationError):
             f"Tried dividing by zero (Expression '{expression}' evaluates to 0).",
             expression.span(),
         )
+
+
+def format_errors(errors: Sequence[Error], input_len: int) -> str:
+    """
+    Formats a list of errors (from parsing or evaluating) into "error lines" to be added to the output embed.
+
+    Error lines consists of padding, ^ characters, padding, and finally the message of the error.
+
+    # Example outputs
+    ```
+    "    ^^^      Division by zero (Expression: ..)"
+    ```
+    """
+    error_lines: list[str] = []
+    if any(isinstance(e.span, _EOL) for e in errors):
+        # Accounts for extra padding to show errors at the end of input (expected expressions and so on).
+        line_length = input_len + 3
+    else:
+        line_length = input_len
+
+    for error in errors:
+        if isinstance(error.span, _EOL):
+            start, end = input_len + 1, input_len + 3
+        else:
+            start, end = error.span
+        line = " " * start
+        line += "^" * (end - start)
+        line += " " * (line_length - end)
+        line += str(error)
+        error_lines.append(line)
+    return "\n".join(error_lines)
 
 
 def parse(input: str) -> Result[Expression, list[ParsingError]]:

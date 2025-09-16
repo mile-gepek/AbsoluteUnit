@@ -15,6 +15,8 @@
           pint
           result
           rich
+          disnake
+          python-dotenv
         ]))
         ruff
         basedpyright
