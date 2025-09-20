@@ -1126,6 +1126,7 @@ def _parse_primary(
 
 def _parse_group(
     tokens: deque[Token],
+    opening_pair: ParenToken,
 ) -> Result[Group, list[ParsingError]]:
     """
     Parses a sequence of tokens surrounded by Paren tokens on the same level, handling nested groups as expected.
@@ -1138,10 +1139,6 @@ def _parse_group(
     - `UnmatchedParenError`
         - Returned when the first paren is not an opening one, or when the opening paren isn't closed.
     """
-    opening_pair = tokens.popleft()
-    if not isinstance(opening_pair, ParenToken):
-        raise ValueError(f"Expected a paren token, got {opening_pair} instead")
-
     if not opening_pair.paren_type.is_opening():
         return Err([UnmatchedParenError(opening_pair)])
 
@@ -1204,7 +1201,11 @@ def _parse_primary_chain(
     # TODO: this code is fucking disgusting.
 
     token = tokens[0]
-    if not isinstance(token, (UnitToken, FloatToken, ParenToken)):
+    if isinstance(token, ParenToken):
+        _ = tokens.popleft()
+        return _parse_group(tokens, token)
+
+    if not isinstance(token, (UnitToken, FloatToken)):
         return Err([UnexpectedPrimaryError(token)])
 
     error_group: list[ParsingError] = []
@@ -1266,7 +1267,8 @@ def _parse_primary_chain(
         # Dimensionless groups start new subexpressions (just like Floats).
         # Othewrise, they multiply with the current one.
         elif isinstance(token, ParenToken):
-            group_res = _parse_group(tokens)
+            _ = tokens.popleft()
+            group_res = _parse_group(tokens, token)
             if isinstance(group_res, Err):
                 error_group.extend(group_res.err_value)
                 previous_expr = None
@@ -1314,7 +1316,7 @@ def _parse_primary_chain(
                 and previous_expr.dimensionality() == unit.dimensionality()
             ):
                 # Report an error when 2 units of the same dimensionality are found next to each other.
-                # This is done because input like `5ft 9in` looks awkward.
+                # This is done because input like `5ft in` looks awkward.
                 # TODO: maybe this should simply multiply.
                 if not previous_unit_error:
                     message = "Expected a number between units of the same dimension."
@@ -1402,18 +1404,17 @@ def _parse_float(
             break
         if exp:
             _ = tokens.popleft()
+            _ = tokens.popleft()
             if isinstance(right_token, UnitToken):
                 message = f"Expected a number or dimensionless group as an exponent, got unit '{right_token.token}'."
                 error_group.append(
                     ExpectedPrimaryError(message=message, span=right_token.span())
                 )
-                _ = tokens.popleft()
                 continue
             elif isinstance(right_token, FloatToken):
-                _ = tokens.popleft()
                 right = Float(right_token.to_float(), *right_token.span())
             else:
-                right_res = _parse_group(tokens)
+                right_res = _parse_group(tokens, right_token)
                 if isinstance(right_res, Err):
                     error_group.extend(right_res.err_value)
                     continue
@@ -1479,18 +1480,17 @@ def _parse_unit(
             break
         if exp:
             _ = tokens.popleft()
+            _ = tokens.popleft()
             if isinstance(right_token, UnitToken):
                 message = f"Expected a number or dimensionless group as an exponent, got unit '{right_token.token}'."
                 error_group.append(
                     ExpectedPrimaryError(message=message, span=right_token.span())
                 )
-                _ = tokens.popleft()
                 continue
             elif isinstance(right_token, FloatToken):
-                _ = tokens.popleft()
                 right = Float(right_token.to_float(), *right_token.span())
             else:
-                right_res = _parse_group(tokens)
+                right_res = _parse_group(tokens, right_token)
                 if isinstance(right_res, Err):
                     error_group.extend(right_res.err_value)
                     continue

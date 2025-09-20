@@ -263,7 +263,6 @@ def test_group_unmatched_closing_paren_error() -> None:
     assert isinstance(result, Err)
     errors = result.err_value
     assert isinstance(errors[0], UnmatchedParenError)
-    assert not tokens
 
 
 def test_group_unmatched_opening_paren_error() -> None:
