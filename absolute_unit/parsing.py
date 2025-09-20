@@ -938,7 +938,7 @@ def format_errors(errors: Sequence[Error], input_len: int) -> str:
 
     for error in errors:
         if isinstance(error.span, _EOL):
-            start, end = input_len + 1, input_len + 3
+            start, end = input_len + 1, input_len + 2
         else:
             start, end = error.span
         line = " " * start
@@ -1008,6 +1008,7 @@ def _parse_binary(
                 break
             op_type = token.op_type
             _ = tokens.popleft()
+        # Implicit multiplication
         elif OperatorType.MUL in ops:
             op_type = OperatorType.MUL
         else:
@@ -1226,7 +1227,12 @@ def _parse_primary_chain(
         token = tokens[0]
         if isinstance(token, FloatToken):
             _ = tokens.popleft()
-            number = Float(token.to_float(), *token.span())
+            number_res = _parse_float(tokens, token)
+            if isinstance(number_res, Err):
+                error_group.extend(number_res.err_value)
+                previous_expr = None
+                continue
+            number = number_res.ok_value
 
             # Floats after parens which evalute to numbers (dimensionless Group) get multiplied.
             # e.g.
@@ -1287,22 +1293,23 @@ def _parse_primary_chain(
         # If the previous expression was a group, they are multiplied.
         # If both are units of the same dimensionality e.g. '1km/h cm/s', an error is reported.
         elif isinstance(token, UnitToken):
-            unit_res = _parse_unit(tokens)
+            _ = tokens.popleft()
+            unit_res = _parse_unit(tokens, token)
             if isinstance(unit_res, Err):
                 error_group.extend(unit_res.err_value)
                 previous_expr = None
                 continue
             unit = unit_res.ok_value
 
-            if first:
-                if not previous_unit_error:
-                    message = f"Expected a number before the unit '{unit}'."
-                    error_group.append(
-                        ExpectedPrimaryError(message=message, span=unit.span())
-                    )
-                    previous_unit_error = True
-                continue
-            elif (
+            # if first:
+            #     if not previous_unit_error:
+            #         message = f"Expected a number before the unit '{unit}'."
+            #         error_group.append(
+            #             ExpectedPrimaryError(message=message, span=unit.span())
+            #         )
+            #         previous_unit_error = True
+            #     continue
+            if (  # elif
                 isinstance(previous_expr, Unit)
                 and previous_expr.dimensionality() == unit.dimensionality()
             ):
@@ -1364,34 +1371,24 @@ def _parse_primary_chain(
     return Ok(subexpressions[0])
 
 
-def _parse_unit(
+def _parse_float(
     tokens: deque[Token],
+    first: FloatToken,
     exp: bool = False,
-) -> Result[Unit | Binary, list[ParsingError]]:
-    first = tokens[0]
-    if not isinstance(first, UnitToken):
-        raise ValueError(f"Expected a UnitToken first, got {first} instead")
+) -> Result[Float | Binary, list[ParsingError]]:
+    """
+    Parses a number expression such as `1`, `1/2`, `1/2**3`.
 
+
+    """
     error_group: list[ParsingError] = []
-
-    # If I don't put this type hint here, basedpyright or ruff freak out
-    # about list[UndefinedUnitError] not being a subtype of list[ParsingError]
-    # on the last line of the function
-    term: Result[Unit | Binary, list[ParsingError]]
 
     if exp:
         ops = (OperatorType.EXP,)
-        _ = tokens.popleft()
-        res = Unit.try_new(first)
-        if isinstance(res, Err):
-            error_group.append(res.err_value)
-            # This is so so so so so dumb
-            term = Err([res.err_value])
-        else:
-            term = res
+        term = Ok(Float(first.to_float(), *first.span()))
     else:
         ops = (OperatorType.MUL, OperatorType.DIV)
-        term = _parse_unit(tokens, exp=True)
+        term = _parse_float(tokens, first, exp=True)
         if isinstance(term, Err):
             error_group.extend(term.err_value)
 
@@ -1405,7 +1402,7 @@ def _parse_unit(
         if exp:
             _ = tokens.popleft()
             if isinstance(right_token, UnitToken):
-                message = f"Expected a number or group as exponent, got '{right_token.token}'."
+                message = f"Expected a number or dimensionless group as an exponent, got unit '{right_token.token}'."
                 error_group.append(
                     ExpectedPrimaryError(message=message, span=right_token.span())
                 )
@@ -1420,11 +1417,93 @@ def _parse_unit(
                     error_group.extend(right_res.err_value)
                     continue
                 right = right_res.ok_value
+                if right.is_unit():
+                    message = f"Expected a number as an exponent, got an expression with dimension '{right.dimensionality()}'."
+                    error_group.append(
+                        ExpectedPrimaryError(message=message, span=right_token.span())
+                    )
         else:
+            _ = tokens.popleft()
+            if not isinstance(right_token, FloatToken):
+                break
+            _ = tokens.popleft()
+            right_res = _parse_float(tokens, right_token, exp=True)
+            if isinstance(right_res, Err):
+                error_group.extend(right_res.err_value)
+                continue
+            right = right_res.ok_value
+        if isinstance(term, Ok):
+            term = Ok(
+                Binary.try_new(term.ok_value, op.op_type, right).expect(
+                    "This could only fail if it was an exponentation with a unit, which we check for above"
+                )
+            )
+
+    if error_group:
+        return Err(error_group)
+
+    return term
+
+
+def _parse_unit(
+    tokens: deque[Token],
+    first: UnitToken,
+    exp: bool = False,
+) -> Result[Unit | Binary, list[ParsingError]]:
+    error_group: list[ParsingError] = []
+
+    if exp:
+        ops = (OperatorType.EXP,)
+        res = Unit.try_new(first)
+        if isinstance(res, Err):
+            error_group.append(res.err_value)
+            # Type hint to avoid LSP complaints because `list` is invariant
+            errors: list[ParsingError] = [res.err_value]
+            term = Err(errors)
+        else:
+            term = res
+    else:
+        ops = (OperatorType.MUL, OperatorType.DIV)
+        term = _parse_unit(tokens, first, exp=True)
+        if isinstance(term, Err):
+            error_group.extend(term.err_value)
+
+    while len(tokens) > 1:
+        op = tokens[0]
+        right_token = tokens[1]
+        if not isinstance(op, OperatorToken) or op.op_type not in ops:
+            break
+        if not isinstance(right_token, (FloatToken, UnitToken, ParenToken)):
+            break
+        if exp:
+            _ = tokens.popleft()
+            if isinstance(right_token, UnitToken):
+                message = f"Expected a number or dimensionless group as an exponent, got unit '{right_token.token}'."
+                error_group.append(
+                    ExpectedPrimaryError(message=message, span=right_token.span())
+                )
+                _ = tokens.popleft()
+                continue
+            elif isinstance(right_token, FloatToken):
+                _ = tokens.popleft()
+                right = Float(right_token.to_float(), *right_token.span())
+            else:
+                right_res = _parse_group(tokens)
+                if isinstance(right_res, Err):
+                    error_group.extend(right_res.err_value)
+                    continue
+                right = right_res.ok_value
+                if right.is_unit():
+                    message = f"Expected a number as an exponent, got an expression with dimension '{right.dimensionality()}'."
+                    error_group.append(
+                        ExpectedPrimaryError(message=message, span=right_token.span())
+                    )
+        else:
+            _ = tokens.popleft()
             if not isinstance(right_token, UnitToken):
                 break
             _ = tokens.popleft()
-            right_res = _parse_unit(tokens, exp=True)
+            right_res = _parse_unit(tokens, right_token, exp=True)
             if isinstance(right_res, Err):
                 error_group.extend(right_res.err_value)
                 continue
