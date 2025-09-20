@@ -1211,7 +1211,7 @@ def _parse_primary_chain(
     error_group: list[ParsingError] = []
     previous_number_error = False
     previous_unit_error = False
-    # We don't want to report too many errors, so any series of the same error gets ignored.
+    # Any series of the same error gets ignored, because too many errors will be a wall of text in discord.
 
     first = True
     # If the first token is a Unit, report a 'missing number before unit' error.
