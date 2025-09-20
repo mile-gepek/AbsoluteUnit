@@ -936,7 +936,7 @@ def format_errors(errors: Sequence[Error], input_len: int) -> str:
     else:
         line_length = input_len + 1
 
-    for error in errors:
+    for error in errors[:5]:
         if isinstance(error.span, _EOL):
             start, end = input_len + 1, input_len + 2
         else:
@@ -946,6 +946,9 @@ def format_errors(errors: Sequence[Error], input_len: int) -> str:
         line += " " * (line_length - end)
         line += str(error)
         error_lines.append(line)
+    if len(errors) > 5:
+        leftover = len(errors) - 5
+        error_lines.append(" " * line_length + f"And {leftover} more errors.")
     return "\n".join(error_lines)
 
 
@@ -1213,17 +1216,11 @@ def _parse_primary_chain(
     previous_unit_error = False
     # Any series of the same error gets ignored, because too many errors will be a wall of text in discord.
 
-    first = True
-    # If the first token is a Unit, report a 'missing number before unit' error.
-
-    previous_expr: Float | Unit | Group | Binary | None = None
-    # Binary represents complex units e.g. 'km/h'.
-    previous_token: Token | None = None
-
     subexpressions: deque[Binary | Primary | Group] = deque()
-    curr_subexpr: Expression | None = None
-    # A rolling aggregate that gets reset to None upon encountering a number.
-    # All subexpressions are added to `subexpressions`, and later combined based on dimensionality.
+    curr_subexpr: Float | Unit | Binary | None = None
+    previous_token: FloatToken | UnitToken | None = None
+    previous_unit: Unit | Binary | None = None
+
     while tokens:
         token = tokens[0]
         if isinstance(token, FloatToken):
@@ -1231,135 +1228,82 @@ def _parse_primary_chain(
             number_res = _parse_float(tokens, first=token)
             if isinstance(number_res, Err):
                 error_group.extend(number_res.err_value)
-                previous_expr = None
-                continue
-            number = number_res.ok_value
+                curr_subexpr = None
+            else:
+                if curr_subexpr is not None:
+                    subexpressions.append(curr_subexpr)
+                curr_subexpr = number_res.ok_value
 
-            # Floats after parens which evalute to numbers (dimensionless Group) get multiplied.
-            # e.g.
-            # (1+2)3 -> (1+2)*3
-            #
-            # Otherwise, they start a new subexpression.
-            if isinstance(previous_expr, Float):
+            if isinstance(previous_token, FloatToken):
                 if not previous_number_error:
-                    message = "Expected a unit expression or operator between numbers."
-                    start = previous_expr.end()
-                    end = number.start()
+                    message = "Expected operator or unit between numbers."
+                    start = previous_token.end
+                    end = token.start
                     error_group.append(
                         ExpectedPrimaryError(message=message, span=(start, end))
                     )
-                    previous_number_error = True
-                    previous_expr = number
+                previous_number_error = True
                 continue
 
-            if curr_subexpr is None or previous_expr is None:
-                curr_subexpr = number
-            elif previous_expr.is_unit():
-                # In cases of input like '5ft 9in' this would split it into 2 subexpressions.
-                subexpressions.append(curr_subexpr)
-                curr_subexpr = number
-            else:
-                curr_subexpr = Binary.try_new(
-                    curr_subexpr, OperatorType.MUL, number, implicit=True
-                ).unwrap()
-            previous_expr = number
-
-        # Dimensionless groups start new subexpressions (just like Floats).
-        # Othewrise, they multiply with the current one.
-        elif isinstance(token, ParenToken):
-            _ = tokens.popleft()
-            group_res = _parse_group(tokens, token)
-            if isinstance(group_res, Err):
-                error_group.extend(group_res.err_value)
-                previous_expr = None
-                continue
-            group = group_res.ok_value
-
-            if curr_subexpr is None:
-                curr_subexpr = group
-            elif (
-                previous_expr is not None
-                and previous_expr.is_unit()
-                and not group.is_unit()
-            ):
-                subexpressions.append(curr_subexpr)
-                curr_subexpr = group
-            else:
-                curr_subexpr = Binary.try_new(
-                    curr_subexpr, OperatorType.MUL, group, implicit=True
-                ).unwrap()
-            previous_expr = group
-
-        # Units can not start the primary chain, there must be a float in front of them.
-        # If the current subexpression has different dimensionality than this unit, they are multiplied.
-        # If the previous expression was a group, they are multiplied.
-        # If both are units of the same dimensionality e.g. '1km/h cm/s', an error is reported.
         elif isinstance(token, UnitToken):
             _ = tokens.popleft()
             unit_res = _parse_unit(tokens, first=token)
             if isinstance(unit_res, Err):
                 error_group.extend(unit_res.err_value)
-                previous_expr = None
+                curr_subexpr = None
+                previous_unit = None
                 continue
             unit = unit_res.ok_value
 
-            if first:
-                if not previous_unit_error:
-                    message = f"Expected a number before the unit '{unit}'."
-                    error_group.append(
-                        ExpectedPrimaryError(message=message, span=unit.span())
-                    )
-                    previous_unit_error = True
-                continue
-            elif (
-                isinstance(previous_expr, Unit)
-                and previous_expr.dimensionality() == unit.dimensionality()
+            if (
+                isinstance(previous_token, UnitToken)
+                and previous_unit is not None
+                and previous_unit.dimensionality() == unit.dimensionality()
             ):
-                # Report an error when 2 units of the same dimensionality are found next to each other.
-                # This is done because input like `5ft in` looks awkward.
-                # TODO: maybe this should simply multiply.
                 if not previous_unit_error:
-                    message = "Expected a number between units of the same dimension."
-                    start = previous_expr.end()
+                    message = "Expected a number between units of same dimensionality."
+                    start = previous_unit.end()
                     end = unit.start()
-                    if start == end:
-                        start -= 1
-                        end += 1
                     error_group.append(
                         ExpectedPrimaryError(message=message, span=(start, end))
                     )
-                    previous_unit_error = True
+                previous_unit = unit
+                continue
+
+            if (
+                previous_token is None
+                and tokens
+                and isinstance(tokens[0], (FloatToken, UnitToken))
+                and not previous_unit_error
+            ):
+                message = f"Expected number before the unit '{token.token}'."
+                error_group.append(
+                    ExpectedPrimaryError(message=message, span=token.span())
+                )
+                previous_unit_error = True
                 continue
 
             if curr_subexpr is None:
                 curr_subexpr = unit
             else:
-                curr_subexpr = Binary.try_new(
+                curr_subexpr = Binary(
                     curr_subexpr, OperatorType.MUL, unit, implicit=True
-                ).unwrap()
-            previous_expr = unit
+                )
+
+            previous_unit = unit
+
         else:
-            previous_token = token
             break
 
         previous_token = token
         previous_number_error = False
         previous_unit_error = False
-        # If everything goes correct, reset error flags
-        first = False
-
-    if error_group:
-        return Err(error_group)
 
     if curr_subexpr is not None:
         subexpressions.append(curr_subexpr)
 
-    if not subexpressions:
-        if previous_token is None:
-            span = EOL
-        else:
-            span = previous_token.span()
-        return Err([ExpectedPrimaryError(span=span)])
+    if error_group:
+        return Err(error_group)
 
     while len(subexpressions) > 1:
         left = subexpressions.popleft()

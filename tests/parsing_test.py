@@ -440,12 +440,12 @@ def test_primary_chain_complex() -> None:
     mock_result = Binary(
         Binary(
             Binary(
-                float_mock(1),
+                Binary(
+                    float_mock(1),
+                    OperatorType.MUL,
+                    unit_mock("km"),
+                ),
                 OperatorType.MUL,
-                unit_mock("km"),
-            ),
-            OperatorType.ADD,
-            Binary(
                 group_mock(
                     ParenType.L_PAREN,
                     Binary(
@@ -454,9 +454,9 @@ def test_primary_chain_complex() -> None:
                         float_mock(3),
                     ),
                 ),
-                OperatorType.MUL,
-                unit_mock("m"),
             ),
+            OperatorType.MUL,
+            unit_mock("m"),
         ),
         OperatorType.DIV,
         Binary(
