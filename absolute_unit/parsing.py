@@ -1227,7 +1227,7 @@ def _parse_primary_chain(
         token = tokens[0]
         if isinstance(token, FloatToken):
             _ = tokens.popleft()
-            number_res = _parse_float(tokens, token)
+            number_res = _parse_float(tokens, first=token)
             if isinstance(number_res, Err):
                 error_group.extend(number_res.err_value)
                 previous_expr = None
@@ -1294,22 +1294,22 @@ def _parse_primary_chain(
         # If both are units of the same dimensionality e.g. '1km/h cm/s', an error is reported.
         elif isinstance(token, UnitToken):
             _ = tokens.popleft()
-            unit_res = _parse_unit(tokens, token)
+            unit_res = _parse_unit(tokens, first=token)
             if isinstance(unit_res, Err):
                 error_group.extend(unit_res.err_value)
                 previous_expr = None
                 continue
             unit = unit_res.ok_value
 
-            # if first:
-            #     if not previous_unit_error:
-            #         message = f"Expected a number before the unit '{unit}'."
-            #         error_group.append(
-            #             ExpectedPrimaryError(message=message, span=unit.span())
-            #         )
-            #         previous_unit_error = True
-            #     continue
-            if (  # elif
+            if first:
+                if not previous_unit_error:
+                    message = f"Expected a number before the unit '{unit}'."
+                    error_group.append(
+                        ExpectedPrimaryError(message=message, span=unit.span())
+                    )
+                    previous_unit_error = True
+                continue
+            elif (
                 isinstance(previous_expr, Unit)
                 and previous_expr.dimensionality() == unit.dimensionality()
             ):
@@ -1373,8 +1373,9 @@ def _parse_primary_chain(
 
 def _parse_float(
     tokens: deque[Token],
-    first: FloatToken,
     exp: bool = False,
+    *,
+    first: FloatToken,
 ) -> Result[Float | Binary, list[ParsingError]]:
     """
     Parses a number expression such as `1`, `1/2`, `1/2**3`.
@@ -1388,7 +1389,7 @@ def _parse_float(
         term = Ok(Float(first.to_float(), *first.span()))
     else:
         ops = (OperatorType.MUL, OperatorType.DIV)
-        term = _parse_float(tokens, first, exp=True)
+        term = _parse_float(tokens, first=first, exp=True)
         if isinstance(term, Err):
             error_group.extend(term.err_value)
 
@@ -1423,11 +1424,11 @@ def _parse_float(
                         ExpectedPrimaryError(message=message, span=right_token.span())
                     )
         else:
-            _ = tokens.popleft()
             if not isinstance(right_token, FloatToken):
                 break
             _ = tokens.popleft()
-            right_res = _parse_float(tokens, right_token, exp=True)
+            _ = tokens.popleft()
+            right_res = _parse_float(tokens, first=right_token, exp=True)
             if isinstance(right_res, Err):
                 error_group.extend(right_res.err_value)
                 continue
@@ -1447,8 +1448,9 @@ def _parse_float(
 
 def _parse_unit(
     tokens: deque[Token],
-    first: UnitToken,
     exp: bool = False,
+    *,
+    first: UnitToken,
 ) -> Result[Unit | Binary, list[ParsingError]]:
     error_group: list[ParsingError] = []
 
@@ -1464,7 +1466,7 @@ def _parse_unit(
             term = res
     else:
         ops = (OperatorType.MUL, OperatorType.DIV)
-        term = _parse_unit(tokens, first, exp=True)
+        term = _parse_unit(tokens, first=first, exp=True)
         if isinstance(term, Err):
             error_group.extend(term.err_value)
 
@@ -1499,11 +1501,11 @@ def _parse_unit(
                         ExpectedPrimaryError(message=message, span=right_token.span())
                     )
         else:
-            _ = tokens.popleft()
             if not isinstance(right_token, UnitToken):
                 break
             _ = tokens.popleft()
-            right_res = _parse_unit(tokens, right_token, exp=True)
+            _ = tokens.popleft()
+            right_res = _parse_unit(tokens, first=right_token, exp=True)
             if isinstance(right_res, Err):
                 error_group.extend(right_res.err_value)
                 continue
