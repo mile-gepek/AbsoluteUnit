@@ -6,10 +6,10 @@ import pint
 from disnake.ext import commands
 from dotenv import load_dotenv
 from pint.facets.plain import PlainQuantity
-from pint.util import UnitsContainer
 from result import Err, Ok, Result
 
 from absolute_unit import parsing
+from absolute_unit.parsing import ureg
 
 _ = load_dotenv()
 
@@ -58,12 +58,12 @@ class UnitInferError(ConversionError):
 def find_target_unit(
     quantity: PlainQuantity[float],
 ) -> Result[PlainQuantity[float], UnitInferError]:
-    if quantity.units == pint.Unit("cm"):
-        if quantity > pint.Quantity("foot"):
-            return Ok(pint.Quantity("foot"))
-        return Ok(pint.Quantity("inch"))
+    if quantity.units == ureg.cm:
+        if quantity > ureg.foot:
+            return Ok(ureg.Quantity(ureg.foot))
+        return Ok(ureg.Quantity(ureg.inch))
 
-    new_units: PlainQuantity[float] = pint.Quantity(1)
+    new_units: PlainQuantity[float] = ureg.Quantity(1)
     has_metric = False
     has_imperial = False
     for unit, power in quantity.unit_items():
@@ -81,7 +81,7 @@ def find_target_unit(
 
         else:
             new_unit = unit
-        new_units *= pint.Quantity(new_unit) ** power
+        new_units *= ureg.Quantity(new_unit) ** power
 
     return Ok(new_units)
 
@@ -131,15 +131,12 @@ async def convert(
     verbose:
         Print the intepretation of the parsed expression. Use this if output is unexpected.
     """
-    # TODO: test whether defering is needed.
-    await interaction.response.defer()
-
     parsing_result = parsing.parse(input)
     if isinstance(parsing_result, Err):
         errors = parsing_result.err_value
         errors_formatted = parsing.format_errors(errors, len(input))
         output = f"```\n{input}\n{errors_formatted}\n```"
-        _ = await interaction.edit_original_response(output)
+        _ = await interaction.send(output, ephemeral=True)
         return
     expression = parsing_result.ok_value
 
@@ -148,7 +145,7 @@ async def convert(
         errors = eval_result.err_value
         errors_formatted = parsing.format_errors(errors, len(input))
         output = f"```\n{input}\n{errors_formatted}\n```"
-        _ = await interaction.edit_original_response(output)
+        _ = await interaction.send(output, ephemeral=True)
         return
     evaluated = eval_result.ok_value
 
@@ -156,16 +153,16 @@ async def convert(
     if isinstance(converted_result, Err):
         error_str = str(converted_result.err_value)
         output = f"```\n{input}\n{error_str}\n```"
-        _ = await interaction.edit_original_response(output)
+        _ = await interaction.send(output, ephemeral=True)
         return
     converted = converted_result.ok_value
 
-    if converted.units == pint.Unit("foot"):
+    if converted.units == ureg.foot:
         magnitude = converted.magnitude
         whole = int(magnitude)
-        quantity_foot = whole * pint.Unit("foot")
+        quantity_foot = whole * ureg.foot
         decimal = magnitude - whole
-        quantity_inch = decimal * 12 * pint.Unit("inch")
+        quantity_inch = decimal * 12 * ureg.inch
         converted_str = f"{quantity_foot:~P} {quantity_inch:.3g~P}"
     else:
         converted_str = f"{converted:.3g~P}"
@@ -174,7 +171,7 @@ async def convert(
         output = f"```\n{input}\n```interpreting as\n```\n{expression}\n=\n{converted_str}\n```"
     else:
         output = f"`{input}` = `{converted_str}`"
-    _ = await interaction.edit_original_response(output)
+    _ = await interaction.send(output)
 
 
 @bot.event

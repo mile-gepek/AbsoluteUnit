@@ -14,11 +14,14 @@ from collections import deque
 from collections.abc import Callable, Generator, Sequence
 from typing import ClassVar, Self, override
 
-from pint import Quantity
 from pint.facets.plain import PlainQuantity
 from pint.util import UnitsContainer
 
 from result import Result, Ok, Err
+
+
+ureg = pint.UnitRegistry()
+
 
 __all__ = [
     "tokenize",
@@ -29,6 +32,7 @@ __all__ = [
     "EvaluationError",
     "EOL",
     "_EOL",
+    "ureg",
 ]
 
 
@@ -706,7 +710,7 @@ class Float(Primary):
 
     @override
     def evaluate(self) -> Result[PlainQuantity[float], list[EvaluationError]]:
-        return Ok(Quantity(self._value))
+        return Ok(ureg.Quantity(self._value))
 
     @override
     def __str__(self) -> str:
@@ -745,7 +749,7 @@ class Unit(Primary):
     @classmethod
     def try_new(cls, unit_token: UnitToken) -> Result[Self, UndefinedUnitError]:
         try:
-            unit = Quantity(unit_token.token)
+            unit = ureg.Quantity(unit_token.token)
         except pint.UndefinedUnitError:
             return Err(UndefinedUnitError(unit_token))
         return Ok(cls(unit, unit_token.token, unit_token.start, unit_token.end))
@@ -953,6 +957,9 @@ def format_errors(errors: Sequence[Error], input_len: int) -> str:
 
 
 def parse(input: str) -> Result[Expression, list[ParsingError]]:
+    input = input.replace('"', "in")
+    input = input.replace("''", "in")
+    input = input.replace("'", "ft")
     tokens = list(tokenize(input))
     result = _parse_expr(deque(tokens))
     return result
