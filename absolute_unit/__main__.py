@@ -113,7 +113,7 @@ def convert_unit(
 
 @bot.slash_command()
 async def convert(
-    interaction: disnake.GuildCommandInteraction[commands.Bot],
+    interaction: disnake.GuildCommandInteraction[commands.InteractionBot],
     input: str,
     # TODO: converters can be used here
     target: str | None = None,
@@ -172,6 +172,16 @@ async def convert(
     else:
         output = f"`{input}` = `{converted_str}`"
     _ = await interaction.send(output)
+
+
+# disnake has incorrect type hints for slash command error callbacks
+@convert.error  # pyright: ignore[reportArgumentType]
+async def convert_error(
+    interaction: disnake.ApplicationCommandInteraction[commands.InteractionBot],
+    error: commands.CommandInvokeError,
+):
+    msg = f"Error when attempting command:\n`{error.original}`\nThis is a bug."
+    await interaction.send(msg, ephemeral=True)
 
 
 @bot.event
