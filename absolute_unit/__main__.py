@@ -6,12 +6,15 @@ import pint
 from disnake.ext import commands
 from dotenv import load_dotenv
 from pint.facets.plain import PlainQuantity
+from pint.util import UnitsContainer
 from result import Err, Ok, Result
 
 from absolute_unit import parsing
 from absolute_unit.parsing import ureg
 
+
 _ = load_dotenv()
+
 
 logger = logging.getLogger("disnake")
 logger.setLevel(logging.DEBUG)
@@ -57,13 +60,13 @@ class UnitInferError(ConversionError):
 
 def find_target_unit(
     quantity: PlainQuantity[float],
-) -> Result[PlainQuantity[float], UnitInferError]:
+) -> Result[UnitsContainer, UnitInferError]:
     if quantity.units == ureg.cm:
         if quantity > ureg.foot:
-            return Ok(ureg.Quantity(ureg.foot))
-        return Ok(ureg.Quantity(ureg.inch))
+            return Ok(UnitsContainer(foot=1))
+        return Ok(UnitsContainer(inch=1))
 
-    new_units: PlainQuantity[float] = ureg.Quantity(1)
+    units = pint.util.UnitsContainer()
     has_metric = False
     has_imperial = False
     for unit, power in quantity.unit_items():
@@ -81,12 +84,12 @@ def find_target_unit(
 
         else:
             new_unit = unit
-        new_units *= ureg.Quantity(new_unit) ** power
+        units = units.add(new_unit, power)  # pyright: ignore[reportArgumentType]
 
-    return Ok(new_units)
+    return Ok(units)
 
 
-def convert_unit(
+def convert_expression(
     quantity: PlainQuantity[float],
     target: str | None = None,
 ) -> Result[PlainQuantity[float], ConversionError]:
@@ -97,18 +100,47 @@ def convert_unit(
         target_unit = target_result.ok_value
     else:
         try:
-            target_unit = pint.Unit(target)
+            target_unit = UnitsContainer({target: 1})
         except pint.errors.UndefinedUnitError as e:
             units = ", ".join(e.unit_names)
             return Err(ConversionError(f"Undefined target unit(s): {units}."))
     try:
-        return Ok(quantity.to(target_unit).to_reduced_units())
+        converted: PlainQuantity[float] = quantity.to(target_unit).to_reduced_units()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        return Ok(converted)
     except pint.errors.DimensionalityError as e:
         return Err(
             ConversionError(
                 f"Can not convert expression of dimension '{e.dim1}' to dimension '{e.dim2}'."
             )
         )
+
+
+def try_convert_expression(
+    input: str, target: str | None = None
+) -> Result[tuple[parsing.Expression, PlainQuantity[float]], str]:
+    parsing_result = parsing.parse(input)
+    if isinstance(parsing_result, Err):
+        errors = parsing_result.err_value
+        errors_formatted = parsing.format_errors(errors, len(input))
+        output = f"```\n{input}\n{errors_formatted}\n```"
+        return Err(output)
+    expression = parsing_result.ok_value
+
+    eval_result = expression.evaluate()
+    if isinstance(eval_result, Err):
+        errors = eval_result.err_value
+        errors_formatted = parsing.format_errors(errors, len(input))
+        output = f"```\n{input}\n{errors_formatted}\n```"
+        return Err(output)
+    evaluated = eval_result.ok_value
+
+    converted_result = convert_expression(evaluated, target)
+    if isinstance(converted_result, Err):
+        error_str = str(converted_result.err_value)
+        output = f"```\n{input}\n{error_str}\n```"
+        return Err(output)
+
+    return Ok((expression, converted_result.ok_value))
 
 
 @bot.slash_command()
@@ -131,38 +163,18 @@ async def convert(
     verbose:
         Print the intepretation of the parsed expression. Use this if output is unexpected.
     """
-    parsing_result = parsing.parse(input)
-    if isinstance(parsing_result, Err):
-        errors = parsing_result.err_value
-        errors_formatted = parsing.format_errors(errors, len(input))
-        output = f"```\n{input}\n{errors_formatted}\n```"
-        _ = await interaction.send(output, ephemeral=True)
-        return
-    expression = parsing_result.ok_value
-
-    eval_result = expression.evaluate()
-    if isinstance(eval_result, Err):
-        errors = eval_result.err_value
-        errors_formatted = parsing.format_errors(errors, len(input))
-        output = f"```\n{input}\n{errors_formatted}\n```"
-        _ = await interaction.send(output, ephemeral=True)
-        return
-    evaluated = eval_result.ok_value
-
-    converted_result = convert_unit(evaluated, target)
+    # raise ValueError("a")
+    converted_result = try_convert_expression(input, target)
     if isinstance(converted_result, Err):
-        error_str = str(converted_result.err_value)
-        output = f"```\n{input}\n{error_str}\n```"
-        _ = await interaction.send(output, ephemeral=True)
-        return
-    converted = converted_result.ok_value
+        return await interaction.send(converted_result.err_value, ephemeral=True)
+    (expression, converted) = converted_result.ok_value
 
     if converted.units == ureg.foot:
         magnitude = converted.magnitude
         whole = int(magnitude)
-        quantity_foot = whole * ureg.foot
+        quantity_foot = whole * ureg.foot  # pyright: ignore[reportUnknownVariableType]
         decimal = magnitude - whole
-        quantity_inch = decimal * 12 * ureg.inch
+        quantity_inch = decimal * 12 * ureg.inch  # pyright: ignore[reportUnknownVariableType]
         converted_str = f"{quantity_foot:~P} {quantity_inch:.3g~P}"
     else:
         converted_str = f"{converted:.3g~P}"
@@ -175,7 +187,7 @@ async def convert(
 
 
 # disnake has incorrect type hints for slash command error callbacks
-@convert.error  # pyright: ignore[reportArgumentType]
+@convert.error  # pyright: ignore[reportArgumentType, reportUntypedFunctionDecorator]
 async def convert_error(
     interaction: disnake.ApplicationCommandInteraction[commands.InteractionBot],
     error: commands.CommandInvokeError,
