@@ -714,6 +714,8 @@ class Float(Primary):
 
     @override
     def __str__(self) -> str:
+        if self._value.is_integer():
+            return str(int(self._value))
         return str(self._value)
 
     @override
@@ -914,7 +916,7 @@ class EvaluationError(Error):
     pass
 
 
-class DivisionByZeroError(EvaluationError):
+class DivisionByZeroError(ParsingError, EvaluationError):
     def __init__(self, expression: Expression) -> None:
         super().__init__(
             f"Tried dividing by zero (Expression '{expression}' evaluates to 0).",
@@ -1043,7 +1045,15 @@ def _parse_binary(
             error_group.extend(right.err_value)
 
         elif op_type is not None:
-            if isinstance(term, Ok):
+            right_val = right.ok_value
+            if (
+                isinstance(right_val, Float)
+                and right_val.value == 0
+                and op_type == OperatorType.DIV
+            ):
+                error_group.append(DivisionByZeroError(right_val))
+
+            elif isinstance(term, Ok):
                 match Binary.try_new(term.ok_value, op_type, right.ok_value):
                     case Ok(binary):
                         term = Ok(binary)
