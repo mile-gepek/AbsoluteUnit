@@ -928,9 +928,14 @@ def format_errors(errors: Sequence[Error], input_len: int) -> str:
 
     Error lines consists of padding, ^ characters, padding, and finally the message of the error.
 
-    # Example outputs
+    Examples of error lines.
+    ------------------------
     ```
-    "    ^^^      Division by zero (Expression: ..)"
+    "    ^^^         Division by zero (Expression: ..)"
+    ```
+
+    ```
+    "          ^ Expected expression."
     ```
     """
     error_lines: list[str] = []
@@ -957,6 +962,13 @@ def format_errors(errors: Sequence[Error], input_len: int) -> str:
 
 
 def parse(input: str) -> Result[Expression, list[ParsingError]]:
+    """
+    Try to parse the given input expression.
+
+    Errors
+    ------
+    - List of `ParsingError` for issues when parsing.
+    """
     input = input.replace('"', "in")
     input = input.replace("''", "in")
     input = input.replace("'", "ft")
@@ -986,10 +998,12 @@ def _parse_binary(
     2. Parse one term (the starting left term).
     3. Repeatedly pop an operator and try to parse the `right` term. Then construct a Binary with the current terms.
 
-    # Raises
-    - `ParsingErrorGroup`
-        - Any errors propagated from parsing terms (`_parse_unary` and `_parse_primary`) are propagated up.
-        - Errors get reported for all terms, hopefully this makes it easier to debug and use.
+    Errors
+    ------
+    - Any errors propagated from parsing primary terms in `_parse_primary`.
+
+    - Errors get reported for all terms, hopefully this makes it easier to debug and use.
+        - e.g. "(1 / 0) + (2 / 0)" will report errors for both parenthesis.
     """
 
     error_group: list[ParsingError] = []
@@ -1065,16 +1079,15 @@ def _parse_unary(
     """
     Parse a sequence of unary operations, the tree is created from the innermost operation.
 
-    # Example
+    Example
+    -------
     - `+-3` turns into `Unary(ADD, Unary(SUB, Float(3)))`.
 
-    # Errors
+    Errors
+    ------
     - `InvalidUnaryError`
         - Any operator not found in the unary operator map `_UNARY_OP_MAP` is considered invalid.
-    - `ExpectedPrimaryError`
-        - No term or "value" was found for the operation, which means there are no more tokens.
-    - `ParsingErrorGroup`
-        - Any errors propagated from parsing higher precedence terms (multiplication `_parse_mul`, and exponentiation `_parse_exp`)
+    - Any errors propagated from parsing higher precedence terms, see `_parse_mul` and `_parse_exp`.
     """
     op_list: list[OperatorToken] = []
     while tokens:
@@ -1115,18 +1128,15 @@ def _parse_primary(
     - "Primary chain": Series of Floats and Units which get parsed with implicit binary operations.
         - See `_parse_primary_chain` for details.
 
-    # Errors
-    - `InvalidUnitError`
-        - Any units which aren't defined by the unit registry.
+    Errors
+    ------
     - `ExpectedPrimaryError`
         - We reached the end of the token stream, but we're expecting a primary or a group term.
+        - Returned from `_parse_primary_chain` in some cases.
     - `UnmatchedParenError`
-        - Unmatched opening or closing group (parenthesis, brackets or braces).
-        - Expressions inside a group can only be parsed if every paren has a pair.
-    - `UnexpectedPrimaryError`
-        - Raised from `_parse_primary_chain`.
-        - Raised when we're expecting a Float, Unit or primary chain but we encounter an unexpected token.
-        - Raised when a primary chain does not follow the format `Float Unit Float Unit ...`.
+        - See `_parse_group`.
+    - `UnexpectedPrimaryError`, `InvalidUnitError`
+        - See `_parse_primary_chain`.
     """
     if not tokens:
         return Err([ExpectedPrimaryError()])
@@ -1144,7 +1154,8 @@ def _parse_group(
     ((5 + 3) + 7)
     Gets turned into one big Group expression, with a smaller one inside.
 
-    # Errors
+    Errors
+    ------
     - Any error propagated from the inner expression.
     - `UnmatchedParenError`
         - Returned when the first paren is not an opening one, or when the opening paren isn't closed.
@@ -1331,9 +1342,14 @@ def _parse_float(
     first: FloatToken,
 ) -> Result[Float | Binary, list[ParsingError]]:
     """
-    Parses a number expression such as `1`, `1/2`, `1/2**3`.
+    Parses a number expression such as "1", "1/2", "1/2**3".
 
+    This is done to ensure inputs like "1/2cm" get handled as "(1/2) * cm" when parsing primary chains.
 
+    Errors
+    ------
+    - `ExpectedPrimaryError`
+        - Returned when we run into a unit as an exponent. This would raise a pint.DimensionalityError when trying to evalute.
     """
     error_group: list[ParsingError] = []
 
@@ -1404,6 +1420,18 @@ def _parse_unit(
     *,
     first: UnitToken,
 ) -> Result[Unit | Binary, list[ParsingError]]:
+    """
+    Parses simple or complex units, such as "N", "N/m", "N/m**2".
+
+    NOTE: implicit multiplication of units is not handled here,
+    the input "N m" only returns the Unit "N", but "m" stays in `tokens`
+
+    Errors
+    ------
+    - `UndefinedUnitError`
+    - `ExpectedPrimaryError`
+        - Returned when we run into a unit as an exponent. This would raise a pint.DimensionalityError when trying to evalute.
+    """
     error_group: list[ParsingError] = []
 
     if exp:

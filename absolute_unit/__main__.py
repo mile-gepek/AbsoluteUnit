@@ -58,15 +58,29 @@ class UnitInferError(ConversionError):
         super().__init__("Can not infer target unit from expression.")
 
 
-def find_target_unit(
+def try_infer_target_unit(
     quantity: PlainQuantity[float],
 ) -> Result[UnitsContainer, UnitInferError]:
+    """
+    Attempt to automatically recognize which units the given quantity to should be converted to.
+
+    This works by stepping through each unit of the quantity (e.g. `5 N / m**2` has units `{N: 1, m: 2}`),
+    and if the unit is metric, adds its imperial "pair", and vice versa to the target unit.
+    Pairs are currently hardcoded in the dictionaries `imperial_to_metric` and `metric_to_imperial`.
+
+    Units which are used in both systems, such as `hour`, are added regardles.
+
+    Errors
+    ------
+    - `UnitInferError`
+        - The given quantity has units from both imperial and metric systems, so we can't infer which system to convert to.
+    """
     if quantity.units == ureg.cm:
         if quantity > ureg.foot:
             return Ok(UnitsContainer(foot=1))
         return Ok(UnitsContainer(inch=1))
 
-    units = pint.util.UnitsContainer()
+    units = {}
     has_metric = False
     has_imperial = False
     for unit, power in quantity.unit_items():
@@ -84,9 +98,9 @@ def find_target_unit(
 
         else:
             new_unit = unit
-        units = units.add(new_unit, power)  # pyright: ignore[reportArgumentType]
+        units[new_unit] = power
 
-    return Ok(units)
+    return Ok(UnitsContainer(units))
 
 
 def convert_expression(
@@ -94,7 +108,7 @@ def convert_expression(
     target: str | None = None,
 ) -> Result[PlainQuantity[float], ConversionError]:
     if target is None:
-        target_result = find_target_unit(quantity)
+        target_result = try_infer_target_unit(quantity)
         if isinstance(target_result, Err):
             return target_result
         target_unit = target_result.ok_value
