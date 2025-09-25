@@ -64,17 +64,17 @@ def try_infer_target_unit(
     """
     Attempt to automatically recognize which units the given quantity to should be converted to.
 
-    This works by stepping through each unit of the quantity (e.g. `5 N / m**2` has units `{N: 1, m: 2}`),
-    and if the unit is metric, adds its imperial "pair", and vice versa to the target unit.
-    Pairs are currently hardcoded in the dictionaries `imperial_to_metric` and `metric_to_imperial`.
-
-    Units which are used in both systems, such as `hour`, are added regardles.
-
     Errors
     ------
     - `UnitInferError`
         - The given quantity has units from both imperial and metric systems, so we can't infer which system to convert to.
     """
+
+    # This works by stepping through each unit of the quantity (e.g. `5 N / m**2` has units `{N: 1, m: 2}`),
+    # and if the unit is metric, adds its imperial "pair", and vice versa to the target unit.
+    # Pairs are currently hardcoded in the dictionaries `imperial_to_metric` and `metric_to_imperial`.
+    # Units which are used in both systems, such as `hour`, are added regardles.
+
     if quantity.units == ureg.cm:
         if quantity > ureg.foot:
             return Ok(UnitsContainer(foot=1))
