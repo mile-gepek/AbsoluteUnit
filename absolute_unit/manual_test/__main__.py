@@ -1,6 +1,6 @@
 from result import Err
 from rich.pretty import pprint
-from parsing import parse, _EOL
+from absolute_unit.parsing import parse, _EOL  # pyright: ignore[reportPrivateUsage]
 
 if __name__ == "__main__":
     inputs = [
