@@ -1357,7 +1357,7 @@ def _parse_primary_chain(
 #     primary: type[T],
 #     exp: bool = False,
 #     first: T,
-# )
+# ) -> T:
 # ```
 # but pyright complained that any Float or Unit created inside the function wasn't assignable to T
 
