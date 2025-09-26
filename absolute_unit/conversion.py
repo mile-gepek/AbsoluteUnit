@@ -22,7 +22,7 @@ imperial_to_metric = {
     "foot": "meter",
     "inch": "centimeter",
     "pound": "kilogram",
-    "mile_per_hour": "kilometer / hour",
+    "mile_per_hour": "kilometer_per_hour",
 }
 
 

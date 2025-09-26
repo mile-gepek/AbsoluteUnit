@@ -52,6 +52,7 @@ async def convert(
         return await interaction.send(converted_result.err_value, ephemeral=True)
     (expression, converted) = converted_result.ok_value
 
+    # TODO: move allodis to a bigh "post-process" function
     if converted.units == ureg.foot:
         magnitude = converted.magnitude
         whole = int(magnitude)
@@ -60,6 +61,8 @@ async def convert(
         quantity_inch = decimal * 12 * ureg.inch  # pyright: ignore[reportUnknownVariableType]
         converted_str = f"{quantity_foot:~P} {quantity_inch:.3g~P}"
     else:
+        if converted.units == ureg.kph:
+            converted = converted.to("km/h")  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
         converted_str = f"{converted:.3g~P}"
 
     if verbose:
@@ -75,7 +78,13 @@ async def convert_error(
     interaction: disnake.ApplicationCommandInteraction[commands.InteractionBot],
     error: commands.CommandInvokeError,
 ):
-    msg = f"Error when attempting command:\n`{error.original}`\nThis is a bug."
+    original = error.original
+    original_type = type(original)
+    original_message = str(original)
+    if original_message:
+        msg = f"Error when attempting command:\n`{original_type}: {original_message}`\nThis is a bug."
+    else:
+        msg = f"Error when attempting command:\n`{original_type}`\nThis is a bug."
     await interaction.send(msg, ephemeral=True)
 
 
