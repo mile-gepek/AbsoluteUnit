@@ -1,4 +1,5 @@
 import logging
+import math
 import traceback
 from typing import Callable, Self
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,28 @@ from absolute_unit.logging import DisnakeHandler, setup_logging
 from absolute_unit.parsing import ParserMode
 
 logger = logging.getLogger(__name__)
+
+
+def format_magnitude(value: float, decimals_sigfigs: int) -> str:
+    integer_part = int(value)
+    fraction = abs(value - integer_part)
+
+    integer_str = f"{integer_part:,}"
+    if fraction == 0:
+        return integer_str
+
+    exponent = math.floor(math.log10(fraction))
+    decimals = decimals_sigfigs - 1 - exponent
+    fraction_str = f"{fraction:.{decimals}f}"[2:]
+
+    return f"{integer_str}.{fraction_str}"
+
+
+def format_quantity(quantity: PlainQuantity[float], decimal_sigfigs: int) -> str:
+    magnitude = quantity.magnitude
+    magnitude_formatted = format_magnitude(magnitude, decimal_sigfigs)
+    units_formatted = f"{quantity.units:~P}"
+    return f"{magnitude_formatted}{units_formatted}"
 
 
 class Bot(commands.InteractionBot):
@@ -201,11 +224,11 @@ class ConversionCog(commands.Cog):
             quantity_foot = whole * self.bot.ureg.foot  # pyright: ignore[reportUnknownVariableType]
             decimal = magnitude - whole
             quantity_inch = decimal * 12 * self.bot.ureg.inch  # pyright: ignore[reportUnknownVariableType]
-            converted_str = f"{quantity_foot:~P} {quantity_inch:.3g~D}"
+            converted_str = f"{quantity_foot:~P} {quantity_inch:.2g~D}"
         else:
             if converted.units == self.bot.ureg.kph:
                 converted = converted.to("km/h")  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-            converted_str = f"{converted:.3g~D}"
+            converted_str = format_quantity(converted, 2)
 
         output += f"`{input}` = `{converted_str}`\n"
 
