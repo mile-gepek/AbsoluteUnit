@@ -60,6 +60,13 @@ class UnitInferError(UnitError):
         super().__init__("Can not infer target unit from expression.")
 
 
+_ureg = UnitRegistry("units.txt", autoconvert_offset_to_baseunit=True)
+
+
+def get_unit_registry() -> UnitRegistry:
+    return _ureg
+
+
 def infer_target_unit(
     quantity: PlainQuantity[float],
     ureg: UnitRegistry,

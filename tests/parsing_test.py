@@ -1,5 +1,6 @@
 # pyright: reportPrivateUsage=false
 
+from absolute_unit.conversion import get_unit_registry
 from collections import deque
 
 from result import Err, Ok
@@ -35,7 +36,7 @@ from absolute_unit.parsing import (
 )
 
 
-ureg = UnitRegistry("units.txt")
+ureg = get_unit_registry()
 
 
 def float_token(value: float) -> FloatToken:

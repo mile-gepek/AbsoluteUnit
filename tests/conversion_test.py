@@ -10,10 +10,10 @@ from absolute_unit.conversion import (
     imperial_to_metric,
     infer_target_unit,
     convert,
-    UnitInferError,
+    UnitInferError, get_unit_registry,
 )
 
-ureg = UnitRegistry()
+ureg = get_unit_registry()
 
 
 def str_to_units_container(units: str) -> UnitsContainer:
