@@ -226,7 +226,7 @@ class ConversionCog(commands.Cog):
             quantity_inch = decimal * 12 * self.bot.ureg.inch  # pyright: ignore[reportUnknownVariableType]
             quantity_foot_formatted = format_quantity(quantity_foot, 2)
             quantity_inch_formatted = format_quantity(quantity_inch, 2)
-            converted_str = f"{quantity_foot_formatted} {quantity_inch_formatted:2g~D}"
+            converted_str = f"{quantity_foot_formatted} {quantity_inch_formatted}"
         else:
             if converted.units == self.bot.ureg.kph:
                 converted = converted.to("km/h")  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
