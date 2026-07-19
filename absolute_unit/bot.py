@@ -218,13 +218,15 @@ class ConversionCog(commands.Cog):
         converted = conversion_result.ok()
 
         # TODO: move allodis to a bigh "post-process" function
-        if converted.units == self.bot.ureg.foot:
+        if converted.units == self.bot.ureg.foot and 1/12 <= converted.magnitude <= 10:
             magnitude = converted.magnitude
             whole = int(magnitude)
             quantity_foot = whole * self.bot.ureg.foot  # pyright: ignore[reportUnknownVariableType]
             decimal = magnitude - whole
             quantity_inch = decimal * 12 * self.bot.ureg.inch  # pyright: ignore[reportUnknownVariableType]
-            converted_str = f"{quantity_foot:~P} {quantity_inch:.2g~D}"
+            quantity_foot_formatted = format_quantity(quantity_foot, 2)
+            quantity_inch_formatted = format_quantity(quantity_inch, 2)
+            converted_str = f"{quantity_foot_formatted} {quantity_inch_formatted:2g~D}"
         else:
             if converted.units == self.bot.ureg.kph:
                 converted = converted.to("km/h")  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
