@@ -205,12 +205,6 @@ class ConversionCog(commands.Cog):
             return await interaction.send(output, ephemeral=ephemeral_errors)
         target_unit = target_unit_result.ok()
 
-        has_currency = conversion.has_different_currencies(
-            self.bot.ureg,
-            evaluated,
-            target_unit,
-        )
-
         conversion_result = conversion.convert(evaluated, target_unit)
         if isinstance(conversion_result, Err):
             output += str(conversion_result.err())
@@ -241,7 +235,13 @@ class ConversionCog(commands.Cog):
             if not target:
                 output += "-# The input unit has no default autoconversion, please supply a target unit."
 
-        if has_currency:
+        has_different_currencies = conversion.has_different_currencies(
+            self.bot.ureg,
+            evaluated,
+            target_unit,
+        )
+
+        if has_different_currencies:
             currency_cog = self.bot.currency_cog
             if currency_cog is not None:
                 last_refresh = currency_cog.last_refresh_datetime
