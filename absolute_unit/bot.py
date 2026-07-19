@@ -235,8 +235,11 @@ class ConversionCog(commands.Cog):
         output += f"`{input}` = `{converted_str}`\n"
 
         same_unit = evaluated.unit_items() == target_unit.unit_items()
-        if same_unit and target:
-            output += "-# The input's unit and target unit are the same!"
+        if same_unit:
+            if target:
+                output += "-# The target unit is the same as the expression!"
+            if not target:
+                output += "-# The input unit has no default autoconversion, please supply a target unit."
 
         if has_currency:
             currency_cog = self.bot.currency_cog
