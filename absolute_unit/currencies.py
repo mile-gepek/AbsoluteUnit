@@ -1,11 +1,11 @@
+import logging
 from asyncio import Task
 from collections.abc import Sequence
 from datetime import datetime, time
-import logging
 from typing import Annotated, Any
 
-from aiohttp import ClientSession
 import disnake
+from aiohttp import ClientSession
 from disnake.ext import commands, tasks
 from pint import UnitRegistry
 from pint.util import UnitsContainer
@@ -50,7 +50,7 @@ def clear_ureg_cache(ureg: UnitRegistry, units: Sequence[str]) -> None:
             del cache.conversion_factor[unit_container]  # pyright: ignore[reportUnknownMemberType]
 
 
-def clear_currencies(ureg: UnitRegistry):
+def clear_currencies(ureg: UnitRegistry, base_currency: str):
     """
     If the api removes certain currencies they will be left in the registry.
     This is potentially invalid if a currency's old exchange rate is still stored, but the API doesn't update it.
@@ -59,7 +59,7 @@ def clear_currencies(ureg: UnitRegistry):
     currency_list = [
         name
         for name, definition in units.items()
-        if definition.reference == "[currency]"
+        if definition.reference in ("[currency]", base_currency)
     ]
     for currency in currency_list:
         del units[currency]
@@ -103,7 +103,7 @@ def define_exchange_rates(
     ureg: UnitRegistry, base_currency: str, exchange_rates: dict[str, float]
 ) -> None:
     clear_ureg_cache(ureg, tuple(exchange_rates.keys()))
-    clear_currencies(ureg)
+    clear_currencies(ureg, base_currency)
     ureg.define(f"{base_currency} = [currency] = {base_currency.lower()}")
     for currency, exchange_rate in exchange_rates.items():
         if currency == base_currency:
