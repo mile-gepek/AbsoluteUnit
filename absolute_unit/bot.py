@@ -85,7 +85,7 @@ class Bot(commands.InteractionBot):
         config = Config.get_config().unwrap()
         setup_logging(config.log_level)
         client = commands.InteractionBot(test_guilds=config.test_guild_ids)
-        ureg = UnitRegistry("units.txt", autoconvert_offset_to_baseunit=True)
+        ureg = conversion.get_unit_registry()
         return cls(settings, config, client, ureg)
 
 
