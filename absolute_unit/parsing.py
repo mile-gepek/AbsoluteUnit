@@ -11,7 +11,7 @@ import re
 import string
 from collections import deque
 from collections.abc import Callable, Generator, Sequence
-from typing import ClassVar, Self, override
+from typing import ClassVar, Self, overload, override
 
 import pint
 import rich.repr
@@ -1566,12 +1566,28 @@ class Parser:
             subexpressions.appendleft(new_expr)
         return Ok(subexpressions[0])
 
-    def _parse_primary_expression[T: (Float, Unit)](
+    @overload
+    def _parse_primary_expression(
         self,
-        primary: type[T],
+        primary: type[Float],
         tokens: deque[Token],
         exp: bool = False,
-    ) -> Result[T | Binary, list[ParsingError]]:
+    ) -> Result[Float | Binary, list[ParsingError]]: ...
+
+    @overload
+    def _parse_primary_expression(
+        self,
+        primary: type[Unit],
+        tokens: deque[Token],
+        exp: bool = False,
+    ) -> Result[Unit | Binary, list[ParsingError]]: ...
+
+    def _parse_primary_expression(
+        self,
+        primary: type[Float | Unit],
+        tokens: deque[Token],
+        exp: bool = False,
+    ) -> Result[Float | Unit | Binary, list[ParsingError]]:
         """
         Parses simple or complex float or unit expressions, such as "1", "1/2", "N / m**2", or "1 / 4**(2+3)".
 
