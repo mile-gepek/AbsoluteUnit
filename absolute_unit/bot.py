@@ -150,7 +150,7 @@ class ConversionCog(commands.Cog):
         Parameters
         ----------
         input:
-            The input expression to evaluate and convert.
+            The input expression to evaluate and convert. Use international 3 letter codes for currencies.
         target:
             The output unit, infered if not specified.
         verbose:
