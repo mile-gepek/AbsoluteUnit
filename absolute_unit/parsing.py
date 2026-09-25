@@ -428,7 +428,8 @@ class Whitespace(Token):
 
     @override
     @classmethod
-    def repr_name(cls) -> str: ...
+    def repr_name(cls) -> str:
+        return "whitespace"
 
 
 class UnknownToken(Token):
@@ -454,7 +455,8 @@ class UnknownToken(Token):
 
     @override
     @classmethod
-    def repr_name(cls) -> str: ...
+    def repr_name(cls) -> str:
+        return "unknown"
 
 
 def tokenize(s: str) -> Generator[Token]:
@@ -507,7 +509,8 @@ class Expression(abc.ABC):
         """
 
     @override
-    def __eq__(self, other: object) -> bool: ...
+    def __eq__(self, other: object) -> bool:
+        return NotImplemented
 
 
 class Binary(Expression):
