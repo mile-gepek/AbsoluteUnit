@@ -62,21 +62,156 @@ class CharStream:
     def position(self) -> int:
         return self._i
 
-    def peek(self) -> str | None:
+    def peek_first(self) -> str | None:
         if self._i >= len(self._string):
             return None
         return self._string[self._i]
+
+    def peek_second(self) -> str | None:
+        if self._i + 1 >= len(self._string):
+            return None
+        return self._string[self._i + 1]
+
+    def peek_third(self) -> str | None:
+        if self._i + 2 >= len(self._string):
+            return None
+        return self._string[self._i + 2]
+
+    def bump(self) -> str | None:
+        char = self.peek_first()
+        if char is None:
+            return None
+        self.advance()
+        return char
 
     def advance(self) -> None:
         if self._i < len(self._string):
             self._i += 1
 
     def __next__(self) -> str:
-        char = self.peek()
-        self.advance()
+        char = self.bump()
         if char is None:
             raise StopIteration
         return char
+
+    def tokenize(self) -> Generator[Token]:
+        """
+        Peek into the stream and return a Token depending on the character.
+        The token type is decided based on it's `default_alphabet`, or UnknownToken if none of the match.
+        """
+        # I know keeping this much state about recognized / unrecognized ("unknown") tokens is a lot but I couldn't figure out
+        # a better way to eat anything unrecognized without keeping track and checking on each character and yielding both
+        token = None
+        unknown_token = None
+        while True:
+            char = self.bump()
+            char_index = self._i - 1
+            if char is None:
+                if unknown_token is not None:
+                    yield unknown_token
+                return None
+            match char:
+                case char if char.isdigit() or char == ".":
+                    number = self.eat_number(char)
+                    token = FloatToken(number, char_index)
+                case "+":
+                    token = OperatorToken(OperatorType.ADD, char_index)
+                case "-":
+                    token = OperatorToken(OperatorType.SUB, char_index)
+                case "*":
+                    if self.peek_first() == "*":
+                        self.advance()
+                        token = OperatorToken(OperatorType.EXP, char_index)
+                    else:
+                        token = OperatorToken(OperatorType.MUL, char_index)
+                case "/":
+                    token = OperatorToken(OperatorType.DIV, char_index)
+                case "(":
+                    token = ParenToken(ParenType.L_PAREN, char_index)
+                case ")":
+                    token = ParenToken(ParenType.R_PAREN, char_index)
+                case "[":
+                    token = ParenToken(ParenType.L_BRACKET, char_index)
+                case "]":
+                    token = ParenToken(ParenType.L_BRACKET, char_index)
+                case "{":
+                    token = ParenToken(ParenType.L_BRACE, char_index)
+                case "}":
+                    token = ParenToken(ParenType.L_BRACE, char_index)
+                case char if char in string.ascii_letters:
+                    unit = self.eat_unit(char)
+                    token = UnitToken(unit, char_index)
+                case char if char.isspace():
+                    self.eat_whitespace()
+                case char:
+                    if unknown_token is None:
+                        unknown_token = UnknownToken(char, char_index)
+                    else:
+                        unknown_token.token += char
+
+            if token is not None:
+                if unknown_token is not None:
+                    yield unknown_token
+                    unknown_token = None
+                yield token
+                token = None
+
+    def eat_number(self, first_digit: str) -> str:
+        number_token = first_digit
+        has_dot = False
+        has_scientific_notation = False
+        while (char := self.peek_first()) != None:
+            if char.isdigit():
+                number_token += char
+                self.advance()
+            elif char == ".":
+                if has_dot:
+                    break
+                number_token += char
+                has_dot = True
+                self.advance()
+            elif char == "e" and not has_scientific_notation:
+                second = self.peek_second()
+                if second is None:
+                    break
+                if second.isdigit():
+                    number_token += char + second
+                    self.advance()
+                    self.advance()
+                    has_scientific_notation = True
+                elif second in "+-":
+                    third = self.peek_third()
+                    if third is None:
+                        break
+                    if third.isdigit():
+                        number_token += char + second + third
+                        self.advance()
+                        self.advance()
+                        self.advance()
+                        has_scientific_notation = True
+                    else:
+                        break
+                else:
+                    break
+            else:
+                break
+        return number_token
+
+    def eat_unit(self, first_char: str) -> str:
+        token = first_char
+        while (char := self.peek_first()) != None:
+            if char in string.ascii_letters:
+                token += char
+                self.advance()
+            else:
+                break
+        return token
+
+    def eat_whitespace(self) -> None:
+        while (char := self.peek_first()) != None:
+            if not char.isspace():
+                break
+            self.advance()
 
     def __iter__(self) -> Self:
         return self
@@ -93,109 +228,20 @@ class Token(abc.ABC):
     Tokens are "registered" using the `__init_subclass__` hook, which stores all token types and a total alphabet (used for discovering unknown tokens).
     """
 
-    total_alphabet: ClassVar[str] = ""
-    """
-    A string containing all possible expression characters.
-    When a token is created with `Tokem.from_stream` and the first character from the stream isn't recognized, it returns an UnknownToken.
-    """
-    token_types: ClassVar[list[type[Self]]] = []
-
-    def __init__(self, token: str, start: int, end: int) -> None:
-        self._token: str = token
-        self._start: int = start
-        self._end: int = end
-
-    @classmethod
-    def from_stream(cls, stream: CharStream) -> Token | None:
-        """
-        Peek into the stream and return a Token depending on the character.
-        The token type is decided based on it's `default_alphabet`, or UnknownToken if none of the match.
-        """
-        char = stream.peek()
-        if char is None:
-            return None
-
-        # Any unknown character (not "registered" from any of the token subclasses)
-        if char not in cls.total_alphabet:
-            start = stream.position
-            token_str = UnknownToken.consume(stream)
-            return UnknownToken(token_str, start, stream.position)
-
-        for token_type in cls.token_types:
-            alphabet = token_type.default_alphabet()
-            if alphabet is not None and char in alphabet:
-                start = stream.position
-                token = token_type.consume(stream)
-                return token_type(token, start, stream.position)
-
-    @property
-    def token(self) -> str:
-        return self._token
-
-    @property
-    def start(self) -> int:
-        """
-        The start of this token in the input string.
-        """
-        # TODO: Tokens (and expressions) currently don't hold a reference to the input string, this should be changed.
-
-        return self._start
+    def __init__(self, token: str, start: int) -> None:
+        self.token: str = token
+        self.start: int = start
 
     @property
     def end(self) -> int:
-        """
-        The end of this token in the input string.
-        """
-        # TODO: Tokens (and expressions) currently don't hold a reference to the input string, this should be changed.
-
-        return self._end
+        return self.start + len(self.token)
 
     def span(self) -> tuple[int, int]:
-        return (self._start, self._end)
-
-    @staticmethod
-    @abc.abstractmethod
-    def default_alphabet() -> str | None:
-        return None
-
-    @classmethod
-    def alphabet(cls, curr_token: str) -> str | None:  # pyright: ignore [reportUnusedParameter]
-        """
-        Context-dependant alphabet.
-        Certain Tokens, such as `OperatorToken`s want to change their alphabet depending on the characters they've already consumed.
-
-        # Example
-        An operator token that has already accepted the character '*', can accept another '*' to make exponentiation.
-        """
-        return cls.default_alphabet()
-
-    @classmethod
-    def consume(cls, stream: CharStream) -> str:
-        """
-        The standard way of grabbing a token from a stream, used by most Token types.
-        Consumes stream characters one by one, stopping when it finds a character which isn't in the Token's `alphabet`.
-
-        Subclasses (concrete token types) can override this method, such as WhitespaceToken or UnknownToken.
-        """
-        token = ""
-        while (char := stream.peek()) is not None:
-            alphabet = cls.alphabet(token)
-            if alphabet is None or char not in alphabet:
-                break
-            token += char
-            stream.advance()
-        return token
-
-    def __init_subclass__(cls) -> None:
-        alphabet = cls.default_alphabet()
-        if alphabet is None:
-            return
-        Token.token_types.append(cls)
-        Token.total_alphabet += alphabet
+        return (self.start, self.start + len(self.token))
 
     @override
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self._token}, {self.span()})"
+        return f"{self.__class__.__name__}({self.token}, {self.span()})"
 
     @override
     def __repr__(self) -> str:
@@ -215,23 +261,8 @@ class FloatToken(Token):
     - '.2'
     """
 
-    @override
-    @staticmethod
-    def default_alphabet() -> str:
-        return string.digits + "."
-
-    @override
-    @classmethod
-    def alphabet(cls, curr_token: str) -> str:
-        """
-        Used to check if the float token already contains a dot.
-        """
-        if "." in curr_token:
-            return string.digits
-        return cls.default_alphabet()
-
     def to_float(self) -> float:
-        return float(self._token)
+        return float(self.token)
 
     @override
     @classmethod
@@ -245,11 +276,6 @@ class UnitToken(Token):
 
     NOTE: The units are not checked during tokenization, these represent any ascii string
     """
-
-    @override
-    @staticmethod
-    def default_alphabet() -> str:
-        return string.ascii_letters + "_"
 
     @override
     @classmethod
@@ -315,23 +341,9 @@ class ParenType(enum.Enum):
 
 
 class ParenToken(Token):
-    def __init__(self, token: str, start: int, end: int) -> None:
-        super().__init__(token, start, end)
-        # This is a bit scuffed because it takes a string, but tokenization depends on that anyway.
-        # Maybe refactor to only accept ParenType directly.
-        self._paren_type: ParenType = ParenType(token)
-
-    @override
-    @staticmethod
-    def default_alphabet() -> str:
-        return "()[]{}"
-
-    @override
-    @classmethod
-    def alphabet(cls, curr_token: str) -> str:
-        if curr_token:
-            return ""
-        return cls.default_alphabet()
+    def __init__(self, paren_type: ParenType, start: int) -> None:
+        super().__init__(paren_type.value, start)
+        self._paren_type: ParenType = paren_type
 
     @property
     def paren_type(self) -> ParenType:
@@ -374,24 +386,10 @@ _UNARY_OP_MAP: dict[
 
 
 class OperatorToken(Token):
-    def __init__(self, token: str, start: int, end: int) -> None:
-        super().__init__(token, start, end)
+    def __init__(self, operator_type: OperatorType, start: int) -> None:
+        super().__init__(operator_type.value, start)
         # Just like ParenToken, acceping a string instead of OperatorType directly is scuffed.
-        self._op_type: OperatorType = OperatorType(self._token)
-
-    @override
-    @staticmethod
-    def default_alphabet() -> str:
-        return "+-*/"
-
-    @override
-    @classmethod
-    def alphabet(cls, curr_token: str) -> str:
-        if not curr_token:
-            return cls.default_alphabet()
-        if curr_token == "*":
-            return "*"
-        return ""
+        self._op_type: OperatorType = operator_type
 
     @property
     def op_type(self) -> OperatorType:
@@ -403,55 +401,10 @@ class OperatorToken(Token):
         return "operator"
 
 
-class Whitespace(Token):
-    """
-    Whitespace gets skipped during tokenization.
-
-    Whitespace tokens are always equivalent to the empty string since they're discarded.
-    """
-
-    # This should probably be removed and be put into CharStream directly
-
-    @override
-    @staticmethod
-    def default_alphabet() -> str:
-        return string.whitespace
-
-    @override
-    @classmethod
-    def consume(cls, stream: CharStream) -> str:
-        while char := stream.peek():
-            if not char.isspace():
-                break
-            stream.advance()
-        return ""
-
-    @override
-    @classmethod
-    def repr_name(cls) -> str:
-        return "whitespace"
-
-
 class UnknownToken(Token):
     """
     Any characters not "registered" by subclassing Token get interpreted as unknown.
     """
-
-    @override
-    @staticmethod
-    def default_alphabet() -> str | None:
-        return None
-
-    @override
-    @classmethod
-    def consume(cls, stream: CharStream) -> str:
-        token = ""
-        while char := stream.peek():
-            if char in Token.total_alphabet:
-                break
-            token += char
-            stream.advance()
-        return token
 
     @override
     @classmethod
@@ -464,12 +417,7 @@ def tokenize(s: str) -> Generator[Token]:
     A lazy iterator to generate tokens from a a given input string.
     """
     stream = CharStream(s)
-    while stream:
-        token: Token | None = Token.from_stream(stream)
-        if token is None:
-            break
-        if not isinstance(token, Whitespace):
-            yield token
+    yield from stream.tokenize()
 
 
 class Expression(abc.ABC):

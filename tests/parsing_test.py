@@ -30,13 +30,12 @@ from absolute_unit.parsing import (
     UnitToken,
     UnknownToken,
     UnmatchedParenError,
-    Whitespace,
     tokenize,
 )
 
 
 def float_token(value: float) -> FloatToken:
-    return FloatToken(str(value), 0, 0)
+    return FloatToken(str(value), 0)
 
 
 def float_mock(value: float) -> Float:
@@ -44,7 +43,7 @@ def float_mock(value: float) -> Float:
 
 
 def unit_token(unit: str) -> UnitToken:
-    return UnitToken(unit, 0, 0)
+    return UnitToken(unit, 0)
 
 
 def unit_mock(unit_registry: UnitRegistry, unit: str) -> Unit:
@@ -55,23 +54,23 @@ def unary_mock(op_type: OperatorType, expr: Expression) -> Unary:
     return Unary(op_type, expr, 0)
 
 
-op_plus = OperatorToken("+", 0, 0)
-op_minus = OperatorToken("-", 0, 0)
-op_mul = OperatorToken("*", 0, 0)
-op_div = OperatorToken("/", 0, 0)
-op_exp = OperatorToken("**", 0, 0)
+op_plus = OperatorToken(OperatorType.ADD, 0)
+op_minus = OperatorToken(OperatorType.SUB, 0)
+op_mul = OperatorToken(OperatorType.MUL, 0)
+op_div = OperatorToken(OperatorType.DIV, 0)
+op_exp = OperatorToken(OperatorType.EXP, 0)
 
 
 def group_mock(paren_type: ParenType, expr: Expression) -> Group:
     return Group(expr, paren_type, 0, 0)
 
 
-left_paren = ParenToken("(", 0, 0)
-right_paren = ParenToken(")", 0, 0)
-left_bracket = ParenToken("[", 0, 0)
-right_bracket = ParenToken("]", 0, 0)
-left_brace = ParenToken("{", 0, 0)
-right_brace = ParenToken("}", 0, 0)
+left_paren = ParenToken(ParenType.L_PAREN, 0)
+right_paren = ParenToken(ParenType.R_PAREN, 0)
+left_bracket = ParenToken(ParenType.L_BRACKET, 0)
+right_bracket = ParenToken(ParenType.R_BRACKET, 0)
+left_brace = ParenToken(ParenType.L_BRACE, 0)
+right_brace = ParenToken(ParenType.R_BRACE, 0)
 
 
 def test_preprocess_feet_inch() -> None:
@@ -105,90 +104,47 @@ def test_char_stream() -> None:
 
 
 def test_float_token() -> None:
-    float_token = FloatToken("3.393", 0, 0)
+    float_token = FloatToken("3.393", 0)
     assert float_token.to_float() == 3.393
 
 
 def test_float_token_consume() -> None:
     """Test whether the FloatToken.consume method works as intended."""
-    token = Token.from_stream(CharStream("3.393"))
+    token = next(CharStream("3.393").tokenize())
     assert isinstance(token, FloatToken) and token.token == "3.393"
 
 
 def test_unit_token() -> None:
-    unit_token = UnitToken("km", 0, 0)
+    unit_token = UnitToken("km", 0)
     assert unit_token.token == "km"
 
 
 def test_unit_token_consume() -> None:
-    token = Token.from_stream(CharStream("km"))
+    token = next(CharStream("km").tokenize())
     assert isinstance(token, UnitToken) and token.token == "km"
-
-
-def test_paren_token() -> None:
-    paren_token = ParenToken("(", 0, 0)
-    assert paren_token.paren_type == ParenType.L_PAREN
-    paren_token = ParenToken(")", 0, 0)
-    assert paren_token.paren_type == ParenType.R_PAREN
 
 
 def test_paren_token_consume() -> None:
     stream = CharStream("()")
-    token = Token.from_stream(stream)
-    assert isinstance(token, ParenToken) and token.token == "("
-    token = Token.from_stream(stream)
-    assert isinstance(token, ParenToken) and token.token == ")"
-
-
-def test_operator_token() -> None:
-    op_token = OperatorToken("+", 0, 0)
-    assert op_token.op_type == OperatorType.ADD
-    op_token = OperatorToken("*", 0, 0)
-    assert op_token.op_type == OperatorType.MUL
-    op_token = OperatorToken("-", 0, 0)
-    assert op_token.op_type == OperatorType.SUB
-    op_token = OperatorToken("**", 0, 0)
-    assert op_token.op_type == OperatorType.EXP
-    op_token = OperatorToken("/", 0, 0)
-    assert op_token.op_type == OperatorType.DIV
+    left, right = stream.tokenize()
+    assert isinstance(left, ParenToken) and left.token == "("
+    assert isinstance(right, ParenToken) and right.token == ")"
 
 
 def test_operator_token_consume() -> None:
     """Primarily intended to check whether ** gets tokenized to OperatorType.MUL."""
     stream = CharStream("*-**/")
-    token = Token.from_stream(stream)
-    assert isinstance(token, OperatorToken) and token.op_type == OperatorType.MUL
-    token = Token.from_stream(stream)
-    assert isinstance(token, OperatorToken) and token.op_type == OperatorType.SUB
-    token = Token.from_stream(stream)
-    assert isinstance(token, OperatorToken) and token.op_type == OperatorType.EXP
-    token = Token.from_stream(stream)
-    assert isinstance(token, OperatorToken) and token.op_type == OperatorType.DIV
-
-
-def test_whitespace_token() -> None:
-    """All whitespace should get ignored."""
-    whitespace = Whitespace("", 0, 0)
-    assert whitespace.token == ""
+    mul, sub, exp, div = stream.tokenize()
+    assert isinstance(mul, OperatorToken) and mul.op_type == OperatorType.MUL
+    assert isinstance(sub, OperatorToken) and sub.op_type == OperatorType.SUB
+    assert isinstance(exp, OperatorToken) and exp.op_type == OperatorType.EXP
+    assert isinstance(div, OperatorToken) and div.op_type == OperatorType.DIV
 
 
 def test_whitespace_consume() -> None:
     stream = CharStream("   bla   \n\n\r")
-    token = Token.from_stream(stream)
-    assert isinstance(token, Whitespace) and token.token == ""
-    token = Token.from_stream(stream)
-    token = Token.from_stream(stream)
-    assert isinstance(token, Whitespace) and token.token == ""
-
-
-def test_unknown_token() -> None:
-    """
-    Anything not in the full Token alphabet is considered unknown.
-
-    These are non-ascii, non-digit and non-operator (+, -, *, /) characters
-    """
-    unknown_token = UnknownToken("@#$;<><:", 0, 0)
-    assert unknown_token.token == "@#$;<><:"
+    token = next(stream.tokenize())
+    assert isinstance(token, UnitToken) and token.token == "bla"
 
 
 def test_tokenize() -> None:
