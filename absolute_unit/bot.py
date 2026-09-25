@@ -47,12 +47,12 @@ class Bot(commands.InteractionBot):
         settings: Settings,
         config: Config,
         client: commands.InteractionBot,
-        ureg: UnitRegistry,
+        unit_registry: UnitRegistry,
     ) -> None:
         super().__init__(test_guilds=config.test_guild_ids)
         self.settings: Settings = settings
         self.config: Config = config
-        self.ureg: UnitRegistry = ureg
+        self.unit_registry: UnitRegistry = unit_registry
 
         if config.test_guild_ids is None:
             logger.info("No test guilds specified, commands will be synced globally.")
@@ -66,7 +66,9 @@ class Bot(commands.InteractionBot):
                 "currencyapi token not found in config, currency conversion will be disabled."
             )
         else:
-            self.currency_cog = currencies.CurrencyCog(self, currency_api_token, ureg)
+            self.currency_cog = currencies.CurrencyCog(
+                self, currency_api_token, unit_registry
+            )
             self.add_cog(self.currency_cog)
         self.add_cog(ConversionCog(self))
 
@@ -85,8 +87,8 @@ class Bot(commands.InteractionBot):
         config = Config.get_config().unwrap()
         setup_logging(config.log_level)
         client = commands.InteractionBot(test_guilds=config.test_guild_ids)
-        ureg = conversion.get_unit_registry()
-        return cls(settings, config, client, ureg)
+        unit_registry = conversion.get_unit_registry()
+        return cls(settings, config, client, unit_registry)
 
 
 def is_admin[T]() -> Callable[[T], T]:
@@ -164,7 +166,7 @@ class ConversionCog(commands.Cog):
         # TODO: maybe clean this up by raising all errors, so the slash_command_error event can handle them
         with ThreadPoolExecutor(1) as executor:
             future = executor.submit(
-                lambda: conversion.parse_input(input, self.bot.ureg, mode)
+                lambda: conversion.parse_input(input, self.bot.unit_registry, mode)
             )
             try:
                 expression_result = future.result(timeout=2)
@@ -176,7 +178,9 @@ class ConversionCog(commands.Cog):
         if isinstance(expression_result, Err):
             error_message = f"```\n{input}\n{expression_result.err()}\n```"
             if target is not None:
-                target_unit_result = conversion.get_target_unit(target, self.bot.ureg)
+                target_unit_result = conversion.get_target_unit(
+                    target, self.bot.unit_registry
+                )
                 if isinstance(target_unit_result, Err):
                     error = target_unit_result.err()
                     error_message += f"Target unit errors:```\n{error}\n```"
@@ -187,11 +191,15 @@ class ConversionCog(commands.Cog):
         if verbose:
             output = f"```\n{input}\n```interpreting as\n```\n{expression}\n```\n"
 
-        evaluation_result = conversion.evaluate_expression(expression, self.bot.ureg)
+        evaluation_result = conversion.evaluate_expression(
+            expression, self.bot.unit_registry
+        )
         if isinstance(evaluation_result, Err):
             error_message = f"```\n{input}\n{evaluation_result.err()}\n```"
             if target is not None:
-                target_unit_result = conversion.get_target_unit(target, self.bot.ureg)
+                target_unit_result = conversion.get_target_unit(
+                    target, self.bot.unit_registry
+                )
                 if isinstance(target_unit_result, Err):
                     error = target_unit_result.err()
                     error_message += f"Target unit errors:```\n{error}\n```"
@@ -200,9 +208,13 @@ class ConversionCog(commands.Cog):
         evaluated: PlainQuantity[float] = evaluation_result.ok().to_reduced_units()  # pyright: ignore [reportUnknownVariableType, reportUnknownMemberType]
 
         if target is None:
-            target_unit_result = conversion.infer_target_unit(evaluated, self.bot.ureg)
+            target_unit_result = conversion.infer_target_unit(
+                evaluated, self.bot.unit_registry
+            )
         else:
-            target_unit_result = conversion.get_target_unit(target, self.bot.ureg)
+            target_unit_result = conversion.get_target_unit(
+                target, self.bot.unit_registry
+            )
 
         if isinstance(target_unit_result, Err):
             error = target_unit_result.err()
@@ -218,19 +230,19 @@ class ConversionCog(commands.Cog):
 
         # TODO: move allodis to a bigh "post-process" function
         if (
-            converted.units == self.bot.ureg.foot
+            converted.units == self.bot.unit_registry.foot
             and 1 / 12 <= converted.magnitude <= 10
         ):
             magnitude = converted.magnitude
             whole = int(magnitude)
-            quantity_foot = whole * self.bot.ureg.foot  # pyright: ignore[reportUnknownVariableType]
+            quantity_foot = whole * self.bot.unit_registry.foot  # pyright: ignore[reportUnknownVariableType]
             decimal = magnitude - whole
-            quantity_inch = decimal * 12 * self.bot.ureg.inch  # pyright: ignore[reportUnknownVariableType]
+            quantity_inch = decimal * 12 * self.bot.unit_registry.inch  # pyright: ignore[reportUnknownVariableType]
             quantity_foot_formatted = format_quantity(quantity_foot, 2)
             quantity_inch_formatted = format_quantity(quantity_inch, 2)
             converted_str = f"{quantity_foot_formatted} {quantity_inch_formatted}"
         else:
-            if converted.units == self.bot.ureg.kph:
+            if converted.units == self.bot.unit_registry.kph:
                 converted = converted.to("km/h")  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
             converted_str = format_quantity(converted, 2)
 
@@ -244,7 +256,7 @@ class ConversionCog(commands.Cog):
                 output += "-# The input unit has no default autoconversion, please supply a target unit."
 
         has_different_currencies = conversion.has_different_currencies(
-            self.bot.ureg,
+            self.bot.unit_registry,
             evaluated,
             target_unit,
         )

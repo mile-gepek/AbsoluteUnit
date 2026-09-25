@@ -67,7 +67,7 @@ def get_unit_registry() -> UnitRegistry:
 
 def infer_target_unit(
     quantity: PlainQuantity[float],
-    ureg: UnitRegistry,
+    unit_registry: UnitRegistry,
 ) -> Result[UnitsContainer, UnitInferError]:
     """
     Attempt to automatically recognize which units the given quantity to should be converted to.
@@ -83,8 +83,8 @@ def infer_target_unit(
     # Pairs are currently hardcoded in the dictionaries `imperial_to_metric` and `metric_to_imperial`.
     # Units which are used in both systems, such as `hour`, are added regardles.
 
-    if quantity.units == ureg.cm:
-        if quantity > ureg.Quantity("foot"):
+    if quantity.units == unit_registry.cm:
+        if quantity > unit_registry.Quantity("foot"):
             return Ok(UnitsContainer(foot=1))
         return Ok(UnitsContainer(inch=1))
 
@@ -113,10 +113,10 @@ def infer_target_unit(
 
 def get_target_unit(
     target: str,
-    ureg: UnitRegistry,
+    unit_registry: UnitRegistry,
 ) -> Result[UnitsContainer, InvalidUnitError]:
     try:
-        unit_quantity = ureg.Quantity(target)
+        unit_quantity = unit_registry.Quantity(target)
     except pint.errors.UndefinedUnitError as e:
         units = ", ".join(e.unit_names)
         return Err(InvalidUnitError(units))
@@ -125,23 +125,23 @@ def get_target_unit(
 
 
 def has_different_currencies(
-    ureg: UnitRegistry,
+    unit_registry: UnitRegistry,
     quantity: PlainQuantity[float],
     target: UnitsContainer,
 ) -> bool:
     q_units = UnitsContainer(quantity.unit_items())
     difference = set(q_units) ^ set(target)
     units = UnitsContainer({s: 0.1 for s in difference})
-    dim = ureg.get_dimensionality(units)
+    dim = unit_registry.get_dimensionality(units)
     return "[currency]" in dim
 
 
 def parse_input(
     input: str,
-    ureg: UnitRegistry,
+    unit_registry: UnitRegistry,
     mode: parsing.ParserMode = parsing.ParserMode.Adaptive,
 ) -> Result[parsing.Expression, str]:
-    parser = parsing.Parser(ureg, mode)
+    parser = parsing.Parser(unit_registry, mode)
     parsing_result = parser.parse(input)
     if isinstance(parsing_result, Err):
         errors = parsing_result.err_value
@@ -152,14 +152,14 @@ def parse_input(
 
 def evaluate_expression(
     expression: parsing.Expression,
-    ureg: UnitRegistry,
+    unit_registry: UnitRegistry,
 ) -> Result[PlainQuantity[float], str]:
-    evaluation_result = expression.evaluate(ureg)
+    evaluation_result = expression.evaluate(unit_registry)
     if isinstance(evaluation_result, Err):
         errors = evaluation_result.err_value
         errors_formatted = parsing.format_errors(errors, expression.end())
         return Err(errors_formatted)
-    return evaluation_result.map(ureg.Quantity)
+    return evaluation_result.map(unit_registry.Quantity)
 
 
 def convert(

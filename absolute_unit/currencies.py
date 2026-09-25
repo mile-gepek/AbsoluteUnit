@@ -23,16 +23,16 @@ logger.setLevel(logging.DEBUG)
 midnight = time(0, 0, 1, tzinfo=UTC)
 
 
-def clear_ureg_cache(ureg: UnitRegistry, units: Sequence[str]) -> None:
+def clear_ureg_cache(unit_registry: UnitRegistry, units: Sequence[str]) -> None:
     """
     The current version of pint has a bug where redefining units does not clear their cached ratios.
 
     This is a problem for currencies as they have to be redefined because of variable exchange rates.
     """
-    # ureg should have a cache, but whatever
-    if not hasattr(ureg, "_cache"):
+    # unit_registry should have a cache, but whatever
+    if not hasattr(unit_registry, "_cache"):
         return
-    cache = ureg._cache  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportPrivateUsage]
+    cache = unit_registry._cache  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportPrivateUsage]
     for unit in units:
         invalid_root_unit_keys: list[UnitsContainer] = []
         for key in cache.root_units:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
@@ -50,12 +50,12 @@ def clear_ureg_cache(ureg: UnitRegistry, units: Sequence[str]) -> None:
             del cache.conversion_factor[unit_container]  # pyright: ignore[reportUnknownMemberType]
 
 
-def clear_currencies(ureg: UnitRegistry, base_currency: str):
+def clear_currencies(unit_registry: UnitRegistry, base_currency: str):
     """
     If the api removes certain currencies they will be left in the registry.
     This is potentially invalid if a currency's old exchange rate is still stored, but the API doesn't update it.
     """
-    units = ureg._units  # pyright: ignore[reportPrivateUsage]
+    units = unit_registry._units  # pyright: ignore[reportPrivateUsage]
     currency_list = [
         name
         for name, definition in units.items()
@@ -108,20 +108,20 @@ async def get_exchange_rates(
 
 
 def define_exchange_rates(
-    ureg: UnitRegistry, base_currency: str, exchange_rates: dict[str, float]
+    unit_registry: UnitRegistry, base_currency: str, exchange_rates: dict[str, float]
 ) -> None:
-    clear_ureg_cache(ureg, tuple(exchange_rates.keys()))
-    clear_currencies(ureg, base_currency)
-    ureg.define(f"{base_currency} = [currency] = {base_currency.lower()}")
+    clear_ureg_cache(unit_registry, tuple(exchange_rates.keys()))
+    clear_currencies(unit_registry, base_currency)
+    unit_registry.define(f"{base_currency} = [currency] = {base_currency.lower()}")
     for currency, exchange_rate in exchange_rates.items():
         if currency == base_currency:
             continue
-        if currency in ureg or currency.lower() in ureg:
+        if currency in unit_registry or currency.lower() in unit_registry:
             continue
         # The api gives back rates for converting the base currency into the target one,
         # so to define the target currency we take the reciprocal
         reverse_exchange_rate = 1 / exchange_rate
-        ureg.define(
+        unit_registry.define(
             f"{currency} = {reverse_exchange_rate} * {base_currency} = {currency.lower()}"
         )
 
@@ -131,14 +131,14 @@ class CurrencyCog(commands.Cog):
         self,
         disnake_client: disnake.Client,
         api_key: str,
-        ureg: UnitRegistry,
+        unit_registry: UnitRegistry,
         # euros because Europe is better
         base_currency: str = "EUR",
     ):
         self._disnake_client: disnake.Client = disnake_client
         self._api_key: str = api_key
         self._last_refresh_datetime: datetime | None = None
-        self._ureg: UnitRegistry = ureg
+        self._ureg: UnitRegistry = unit_registry
         self.base_currency: str = base_currency
         logger.info("Starting currency exchange rate refresh task.")
         self.refresh_task: Task[None] = self.refresh_currency_exchange_rates.start()
