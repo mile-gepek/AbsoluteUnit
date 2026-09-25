@@ -1,8 +1,6 @@
-from absolute_unit.conversion import get_unit_registry
+from pint import UnitRegistry
+
 from absolute_unit.bot import format_magnitude, format_quantity
-
-
-ureg = get_unit_registry()
 
 
 def test_magnitude_format():
@@ -11,7 +9,7 @@ def test_magnitude_format():
     assert formatted == "12,345.00789"
 
 
-def test_quantity_format():
-    quantity = ureg.Quantity("12345.007885 km")
+def test_quantity_format(unit_registry: UnitRegistry):
+    quantity = unit_registry.Quantity("12345.007885 km")
     formatted = format_quantity(quantity, 3)
     assert formatted == "12,345.00789km"
