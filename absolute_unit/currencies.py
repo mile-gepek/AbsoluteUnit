@@ -1,7 +1,7 @@
 import logging
 from asyncio import Task
 from collections.abc import Sequence
-from datetime import datetime, time
+from datetime import datetime, time, UTC
 from typing import Annotated, Any
 
 import disnake
@@ -20,7 +20,7 @@ from pydantic import (
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-midnight = time(0, 0, 0)
+midnight = time(0, 0, 1, tzinfo=UTC)
 
 
 def clear_ureg_cache(ureg: UnitRegistry, units: Sequence[str]) -> None:
@@ -82,8 +82,16 @@ class CurrencyApiResponse(BaseModel):
 
 
 async def get_exchange_rates(
-    currencyapi_session: ClientSession, base_currency: str
+    api_key: str,
+    base_currency: str,
+    loop: AbstractEventLoop,
 ) -> CurrencyApiResponse | None:
+    headers = {"apikey": api_key}
+    currencyapi_session = ClientSession(
+        loop=loop,
+        base_url="https://api.currencyapi.com/v3/",
+        headers=headers,
+    )
     async with currencyapi_session as session:
         params = {"base_currency": base_currency}
         async with session.get("latest", params=params) as resp:
@@ -132,12 +140,6 @@ class CurrencyCog(commands.Cog):
         self._last_refresh_datetime: datetime | None = None
         self._ureg: UnitRegistry = ureg
         self.base_currency: str = base_currency
-        headers = {"apikey": api_key}
-        self.currencyapi_session: ClientSession = ClientSession(
-            loop=disnake_client.loop,
-            base_url="https://api.currencyapi.com/v3/",
-            headers=headers,
-        )
         logger.info("Starting currency exchange rate refresh task.")
         self.refresh_task: Task[None] = self.refresh_currency_exchange_rates.start()
 
@@ -151,8 +153,9 @@ class CurrencyCog(commands.Cog):
 
     async def _refresh_impl(self) -> None:
         response = await get_exchange_rates(
-            self.currencyapi_session,
+            self._api_key,
             self.base_currency,
+            self._disnake_client.loop,
         )
         if response is None:
             return
