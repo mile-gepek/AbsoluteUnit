@@ -1,8 +1,9 @@
 import asyncio
 import enum
 import logging
-import disnake
 from typing import override
+
+import disnake
 
 
 class CustomFormatter(logging.Formatter):

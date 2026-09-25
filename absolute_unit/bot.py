@@ -1,8 +1,9 @@
 import logging
 import math
 import traceback
-from typing import Callable, Self
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import Self
 
 import disnake
 from disnake.ext import commands
@@ -162,11 +163,15 @@ class ConversionCog(commands.Cog):
 
         # TODO: maybe clean this up by raising all errors, so the slash_command_error event can handle them
         with ThreadPoolExecutor(1) as executor:
-            future = executor.submit(lambda: conversion.parse_input(input, self.bot.ureg, mode))
+            future = executor.submit(
+                lambda: conversion.parse_input(input, self.bot.ureg, mode)
+            )
             try:
                 expression_result = future.result(timeout=2)
             except TimeoutError:
-                await interaction.send("Parsing timed out, this is probably a bug.", ephemeral=True)
+                await interaction.send(
+                    "Parsing timed out, this is probably a bug.", ephemeral=True
+                )
                 return
         if isinstance(expression_result, Err):
             error_message = f"```\n{input}\n{expression_result.err()}\n```"
@@ -212,7 +217,10 @@ class ConversionCog(commands.Cog):
         converted = conversion_result.ok()
 
         # TODO: move allodis to a bigh "post-process" function
-        if converted.units == self.bot.ureg.foot and 1/12 <= converted.magnitude <= 10:
+        if (
+            converted.units == self.bot.ureg.foot
+            and 1 / 12 <= converted.magnitude <= 10
+        ):
             magnitude = converted.magnitude
             whole = int(magnitude)
             quantity_foot = whole * self.bot.ureg.foot  # pyright: ignore[reportUnknownVariableType]

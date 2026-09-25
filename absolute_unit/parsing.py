@@ -7,28 +7,27 @@ from __future__ import annotations
 import abc
 import enum
 import operator
-import pint
 import re
 import string
-import rich.repr
 from collections import deque
 from collections.abc import Callable, Generator, Sequence
 from typing import ClassVar, Self, override
 
+import pint
+import rich.repr
 from pint.facets.plain import PlainQuantity
 from pint.util import UnitsContainer
-
-from result import Result, Ok, Err
+from result import Err, Ok, Result
 
 __all__ = [
-    "tokenize",
-    "Parser",
-    "format_errors",
-    "Error",
-    "ParsingError",
-    "EvaluationError",
     "EOL",
     "_EOL",
+    "Error",
+    "EvaluationError",
+    "Parser",
+    "ParsingError",
+    "format_errors",
+    "tokenize",
 ]
 
 
@@ -458,7 +457,7 @@ class UnknownToken(Token):
     def repr_name(cls) -> str: ...
 
 
-def tokenize(s: str) -> Generator[Token, None, None]:
+def tokenize(s: str) -> Generator[Token]:
     """
     A lazy iterator to generate tokens from a a given input string.
     """

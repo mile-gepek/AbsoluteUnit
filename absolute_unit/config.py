@@ -13,7 +13,6 @@ from result import Err, Ok, Result
 
 from absolute_unit.logging import LogLevel
 
-
 logger = logging.getLogger(__name__)
 
 

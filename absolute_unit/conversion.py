@@ -1,10 +1,8 @@
-import time
 import pint
 from pint import UnitRegistry
 from pint.facets.plain import PlainQuantity
 from pint.util import UnitsContainer
-
-from result import Result, Ok, Err
+from result import Err, Ok, Result
 
 from absolute_unit import parsing
 
