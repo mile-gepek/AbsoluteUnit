@@ -497,7 +497,7 @@ class Expression(abc.ABC):
     def dimensionality(self) -> pint.util.UnitsContainer: ...
 
     @abc.abstractmethod
-    def is_unit(self) -> bool: ...
+    def dimensionless(self) -> bool: ...
 
     @abc.abstractmethod
     def evaluate(
@@ -546,7 +546,7 @@ class Binary(Expression):
             op in (OperatorType.ADD, OperatorType.SUB)
             and left.dimensionality() != right.dimensionality()
             or op == OperatorType.EXP
-            and right.is_unit()
+            and not right.dimensionless()
         ):
             return Err(DimensionalityError(left, op, right))
         elif op == OperatorType.DIV and isinstance(right, Float) and right.value == 0:
@@ -575,8 +575,8 @@ class Binary(Expression):
                 return self.left.dimensionality()
 
     @override
-    def is_unit(self) -> bool:
-        return bool(self.dimensionality())
+    def dimensionless(self) -> bool:
+        return not bool(self.dimensionality())
 
     @override
     def evaluate(
@@ -626,7 +626,7 @@ class Binary(Expression):
 
         if (
             isinstance(self.left, Float)
-            and self.right.is_unit()
+            and not self.right.dimensionless()
             and self.op == OperatorType.MUL
             and self.implicit
         ):
@@ -634,7 +634,7 @@ class Binary(Expression):
                 s = f"{left}{right}"
             else:
                 s = f"{left} {right}"
-        elif self.left.is_unit() and self.right.is_unit():
+        elif not self.left.dimensionless() and not self.right.dimensionless():
             s = f"{left}{self.op.value}{right}"
         else:
             s = f"{left} {self.op.value} {right}"
@@ -685,8 +685,8 @@ class Unary(Expression):
         return self.value.dimensionality()
 
     @override
-    def is_unit(self) -> bool:
-        return self.value.is_unit()
+    def dimensionless(self) -> bool:
+        return self.value.dimensionless()
 
     @override
     def evaluate(
@@ -773,8 +773,8 @@ class Float(Primary):
         return UnitsContainer()
 
     @override
-    def is_unit(self) -> bool:
-        return False
+    def dimensionless(self) -> bool:
+        return True
 
     @override
     def evaluate(
@@ -846,8 +846,8 @@ class Unit(Primary):
         return self.unit.dimensionality
 
     @override
-    def is_unit(self) -> bool:
-        return True
+    def dimensionless(self) -> bool:
+        return self.unit.dimensionless
 
     @override
     def evaluate(
@@ -897,8 +897,8 @@ class Group(Expression):
         return self.expr.dimensionality()
 
     @override
-    def is_unit(self) -> bool:
-        return self.expr.is_unit()
+    def dimensionless(self) -> bool:
+        return self.expr.dimensionless()
 
     @override
     def evaluate(
@@ -1664,7 +1664,7 @@ class Parser:
                         error_group.extend(right_res.err())
                         continue
                     right = right_res.ok()
-                    if right.is_unit():
+                    if not right.dimensionless():
                         message = f"Expected a number as an exponent, got an expression with dimension '{right.dimensionality()}'."
                         error_group.append(
                             ExpectedPrimaryError(
@@ -1680,6 +1680,7 @@ class Parser:
                     error_group.extend(right_res.err())
                     continue
                 right = right_res.ok()
+
             if (
                 isinstance(right, Float)
                 and right.value == 0
@@ -1689,7 +1690,7 @@ class Parser:
             elif isinstance(term, Ok):
                 term = Ok(
                     Binary.try_new(term.ok(), op.op_type, right).expect(
-                        "This could only fail if it was an exponentation with a unit, or division by zero, both of which we check for above"
+                        "This could only fail if it was an exponentation with a unit (not constant), or division by zero, both of which we check for above"
                     )
                 )
 
