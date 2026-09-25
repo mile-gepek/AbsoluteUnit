@@ -1,16 +1,15 @@
-from pint import UnitRegistry
-from pint.util import UnitsContainer
 import pytest
+from pint.util import UnitsContainer
 from result import Err, Ok
-
 
 from absolute_unit.conversion import (
     DimensionalityError,
-    metric_to_imperial,
+    UnitInferError,
+    convert,
+    get_unit_registry,
     imperial_to_metric,
     infer_target_unit,
-    convert,
-    UnitInferError, get_unit_registry,
+    metric_to_imperial,
 )
 
 ureg = get_unit_registry()

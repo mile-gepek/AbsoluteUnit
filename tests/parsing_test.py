@@ -1,11 +1,11 @@
 # pyright: reportPrivateUsage=false
 
-from absolute_unit.conversion import get_unit_registry
 from collections import deque
 
+from pint import Quantity
 from result import Err, Ok
 
-from pint import Quantity, UnitRegistry
+from absolute_unit.conversion import get_unit_registry
 from absolute_unit.parsing import (
     Binary,
     CharStream,
@@ -21,6 +21,7 @@ from absolute_unit.parsing import (
     OperatorType,
     ParenToken,
     ParenType,
+    Parser,
     ParserMode,
     Token,
     Unary,
@@ -31,10 +32,8 @@ from absolute_unit.parsing import (
     UnknownToken,
     UnmatchedParenError,
     Whitespace,
-    Parser,
     tokenize,
 )
-
 
 ureg = get_unit_registry()
 
