@@ -743,3 +743,22 @@ def test_parse_strict_mode_complex(unit_registry: UnitRegistry) -> None:
         unit_mock(unit_registry, "h"),
     )
     assert result.ok() == mock_result
+
+
+def test_constant_in_exponent(unit_registry: UnitRegistry):
+    parser = Parser(unit_registry)
+    tokens: deque[Token] = deque(
+        [
+            float_token(2),
+            op_exp,
+            unit_token("pi"),
+        ]
+    )
+    result = parser._parse_primary_expression(Float, tokens)
+    assert isinstance(result, Ok)
+    mock_result = Binary(
+        float_mock(2),
+        OperatorType.EXP,
+        unit_mock(unit_registry, "pi"),
+    )
+    assert result.ok() == mock_result

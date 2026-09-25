@@ -1651,11 +1651,21 @@ class Parser:
                 self._bump(tokens)
                 self._bump(tokens)
                 if isinstance(right_token, UnitToken):
-                    message = f"Expected a number or dimensionless group as an exponent, got unit '{right_token.token}'."
-                    error_group.append(
-                        ExpectedPrimaryError(message=message, span=right_token.span())
-                    )
-                    continue
+                    unit = Unit.try_new(right_token, self.unit_registry)
+                    if isinstance(unit, Err):
+                        error_group.append(UndefinedUnitError(right_token))
+                        continue
+                    unit = unit.ok()
+                    if unit.dimensionless():
+                        right = unit
+                    else:
+                        message = f"Expected a number or dimensionless group as an exponent, got unit '{right_token.token}'."
+                        error_group.append(
+                            ExpectedPrimaryError(
+                                message=message, span=right_token.span()
+                            )
+                        )
+                        continue
                 elif isinstance(right_token, FloatToken):
                     right = Float(right_token.to_float(), *right_token.span())
                 else:
