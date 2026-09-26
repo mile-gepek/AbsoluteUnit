@@ -47,7 +47,8 @@ def unit_token(unit: str) -> UnitToken:
 
 
 def unit_mock(unit_registry: UnitRegistry, unit: str) -> Unit:
-    return Unit(unit_registry.Quantity(unit), unit, 0, 0)
+    mock_token = unit_token(unit)
+    return Unit.try_new(mock_token, unit_registry).unwrap()
 
 
 def unary_mock(op_type: OperatorType, expr: Expression) -> Unary:
@@ -112,6 +113,19 @@ def test_float_token_consume() -> None:
     """Test whether the FloatToken.consume method works as intended."""
     token = next(CharStream("3.393").tokenize())
     assert isinstance(token, FloatToken) and token.token == "3.393"
+
+
+def test_number_token_exponent() -> None:
+    token = next(CharStream("2e-3 km").tokenize())
+    assert isinstance(token, FloatToken) and token.token == "2e-3"
+
+
+def test_number_token_decimal_exponent() -> None:
+    token_stream = CharStream("2.3e-4.5").tokenize()
+    token = next(token_stream)
+    assert isinstance(token, FloatToken) and token.token == "2.3e-4"
+    token = next(token_stream)
+    assert isinstance(token, UnknownToken) and token.token == "."
 
 
 def test_unit_token() -> None:
@@ -179,6 +193,17 @@ def test_token_span() -> None:
     assert token is not None and token.span() == (2, 11)
     token = next(token_stream)
     assert token is not None and token.span() == (12, 13)
+
+
+def test_unknown_token() -> None:
+    stream = CharStream("123.4;%& #@@km")
+    token_stream = stream.tokenize()
+    next(token_stream)
+    token = next(token_stream)
+    assert isinstance(token, UnknownToken) and token.token == ";%&"
+
+    token = next(token_stream)
+    assert isinstance(token, UnknownToken) and token.token == "#@@"
 
 
 def test_unary_parse(unit_registry: UnitRegistry) -> None:
@@ -718,3 +743,27 @@ def test_constant_in_exponent(unit_registry: UnitRegistry):
         unit_mock(unit_registry, "pi"),
     )
     assert result.ok() == mock_result
+
+
+def test_parsing_currency_symbols(currency_unit_registry: UnitRegistry) -> None:
+    parser = Parser(currency_unit_registry)
+    input_string = "15$"
+    result = parser.parse(input_string)
+    assert isinstance(result, Ok)
+    mock_result = Binary(
+        float_mock(15),
+        OperatorType.MUL,
+        unit_mock(currency_unit_registry, "$"),
+    )
+    assert result.ok() == mock_result
+
+
+def test_currency_symbols_not_defined(unit_registry: UnitRegistry) -> None:
+    """Test whether the parser correctly sets the start and length of the currency symbol token when they're not defined as units."""
+    parser = Parser(unit_registry)
+    input_string = "15$"
+    result = parser.parse(input_string)
+    assert isinstance(result, Err)
+    errors = result.err()
+    assert len(errors) == 1
+    assert (isinstance(errors[0], UndefinedUnitError)) and errors[0].span == (2, 3)

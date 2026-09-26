@@ -49,6 +49,14 @@ class _EOL:
 EOL = _EOL()
 
 
+currency_code_map = {
+    "$": " USD",
+    "€": " EUR",
+    "£": " GBP",
+    "¥": " JPY",
+}
+
+
 class CharStream:
     """
     A peekable iterator of characters from the given input string, also with a manual `advance` method.
@@ -111,7 +119,7 @@ class CharStream:
                     yield unknown_token
                 return None
             match char:
-                case char if char.isdigit() or char == ".":
+                case char if char.isdigit():
                     number = self.eat_number(char)
                     token = FloatToken(number, char_index)
                 case "+":
@@ -141,7 +149,12 @@ class CharStream:
                 case char if char in string.ascii_letters:
                     unit = self.eat_unit(char)
                     token = UnitToken(unit, char_index)
+                case char if char in currency_code_map:
+                    token = UnitToken(char, char_index)
                 case char if char.isspace():
+                    if unknown_token is not None:
+                        yield unknown_token
+                        unknown_token = None
                     self.eat_whitespace()
                 case char:
                     if unknown_token is None:
@@ -772,8 +785,10 @@ class Unit(Primary):
     def try_new(
         cls, unit_token: UnitToken, unit_registry: pint.UnitRegistry
     ) -> Result[Self, UndefinedUnitError]:
+        unit = unit_token.token
+        unit = currency_code_map.get(unit, unit)
         try:
-            unit = unit_registry.Quantity(unit_token.token)
+            unit = unit_registry.Quantity(unit)
         except pint.UndefinedUnitError:
             return Err(UndefinedUnitError(unit_token))
         return Ok(cls(unit, unit_token.token, unit_token.start, unit_token.end))
@@ -1045,7 +1060,6 @@ class Parser:
             lambda m: m.group(0) + " inch",
             input,
         )
-
         return input
 
     def parse(self, input: str) -> Result[Expression, list[ParsingError]]:

@@ -3,8 +3,19 @@ from rich.pretty import pprint
 
 from absolute_unit import conversion
 from absolute_unit.conversion import get_unit_registry
+from absolute_unit.currencies import CurrencyApiResponse, define_exchange_rates
 
 unit_registry = get_unit_registry()
+with open("tests/mock_currency_data.json", "r") as mock_currency_data_file:
+    mock_currency_data = mock_currency_data_file.read()
+    mock_currency_data_model = CurrencyApiResponse.model_validate_json(
+        mock_currency_data
+    )
+    define_exchange_rates(
+        unit_registry,
+        mock_currency_data_model.base_currency,
+        mock_currency_data_model.exchange_rates_to_base,
+    )
 
 
 if __name__ == "__main__":

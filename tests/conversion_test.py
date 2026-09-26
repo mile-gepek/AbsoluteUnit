@@ -118,3 +118,12 @@ def test_convert_expression_dimensionality_mismatch(
     assert isinstance(result, Err)
     error = result.err()
     assert isinstance(error, DimensionalityError)
+
+
+def test_currency_conversion(currency_unit_registry: UnitRegistry):
+    quantity = currency_unit_registry("EUR")
+    target = str_to_units_container(currency_unit_registry, "USD")
+    result = convert(quantity, target)
+    assert isinstance(result, Ok)
+    converted = result.ok()
+    assert "USD" in str(converted.units)

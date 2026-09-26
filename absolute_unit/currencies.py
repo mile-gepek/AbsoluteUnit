@@ -23,7 +23,9 @@ logger.setLevel(logging.DEBUG)
 midnight = time(0, 0, 1, tzinfo=UTC)
 
 
-def clear_ureg_cache(unit_registry: UnitRegistry, units: Sequence[str]) -> None:
+def clear_ureg_cached_currencies(
+    unit_registry: UnitRegistry, units: Sequence[str]
+) -> None:
     """
     The current version of pint has a bug where redefining units does not clear their cached ratios.
 
@@ -78,7 +80,10 @@ class CurrencyApiResponse(BaseModel):
     last_updated_at: datetime = Field(
         validation_alias=AliasPath("meta", "last_updated_at")
     )
-    data: Annotated[dict[str, float], BeforeValidator(extract_exchange_rates)]
+    base_currency: str
+    exchange_rates_to_base: Annotated[
+        dict[str, float], BeforeValidator(extract_exchange_rates)
+    ] = Field(alias="data")
 
 
 async def get_exchange_rates(
@@ -110,7 +115,7 @@ async def get_exchange_rates(
 def define_exchange_rates(
     unit_registry: UnitRegistry, base_currency: str, exchange_rates: dict[str, float]
 ) -> None:
-    clear_ureg_cache(unit_registry, tuple(exchange_rates.keys()))
+    clear_ureg_cached_currencies(unit_registry, tuple(exchange_rates.keys()))
     clear_currencies(unit_registry, base_currency)
     unit_registry.define(f"{base_currency} = [currency] = {base_currency.lower()}")
     for currency, exchange_rate in exchange_rates.items():
@@ -160,7 +165,9 @@ class CurrencyCog(commands.Cog):
         if response is None:
             return
         self._last_refresh_datetime = response.last_updated_at
-        define_exchange_rates(self._ureg, self.base_currency, response.data)
+        define_exchange_rates(
+            self._ureg, self.base_currency, response.exchange_rates_to_base
+        )
 
     @refresh_currency_exchange_rates.before_loop
     async def before(self) -> None:
