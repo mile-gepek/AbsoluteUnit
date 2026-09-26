@@ -141,11 +141,11 @@ class CharStream:
                 case "[":
                     token = ParenToken(ParenType.L_BRACKET, char_index)
                 case "]":
-                    token = ParenToken(ParenType.L_BRACKET, char_index)
+                    token = ParenToken(ParenType.R_BRACKET, char_index)
                 case "{":
                     token = ParenToken(ParenType.L_BRACE, char_index)
                 case "}":
-                    token = ParenToken(ParenType.L_BRACE, char_index)
+                    token = ParenToken(ParenType.R_BRACE, char_index)
                 case char if char in string.ascii_letters:
                     unit = self.eat_unit(char)
                     token = UnitToken(unit, char_index)
