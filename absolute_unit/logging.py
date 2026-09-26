@@ -1,6 +1,7 @@
 import asyncio
 import enum
 import logging
+from collections.abc import Mapping
 from typing import override
 
 import disnake
@@ -18,7 +19,7 @@ class CustomFormatter(logging.Formatter):
         f"{red}%(asctime)s{reset} %(name)s [{{}}%(levelname)s{reset}] %(message)s"
     )
 
-    FORMATS: dict[int, str] = {
+    FORMATS: Mapping[int, str] = {
         logging.DEBUG: format_str.format(green),
         logging.INFO: format_str.format(blue),
         logging.WARNING: format_str.format(yellow),
