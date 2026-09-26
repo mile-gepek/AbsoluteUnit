@@ -105,7 +105,7 @@ class CharStream:
     def tokenize(self) -> Generator[Token]:
         """
         Peek into the stream and return a Token depending on the character.
-        The token type is decided based on it's `default_alphabet`, or UnknownToken if none of the match.
+        The token type is decided based on it's grammar, or UnknownToken if none of the match.
         """
         # I know keeping this much state about recognized / unrecognized ("unknown") tokens is a lot but I couldn't figure out
         # a better way to eat anything unrecognized without keeping track and checking on each character and yielding both
