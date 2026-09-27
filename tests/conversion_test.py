@@ -136,4 +136,4 @@ def test_currency_conversion(currency_unit_registry: UnitRegistry):
     result = convert(quantity, target)
     assert isinstance(result, Ok)
     converted = result.ok()
-    assert "USD" in str(converted.units)
+    assert "usd" in str(converted.units)
