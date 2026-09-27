@@ -97,13 +97,6 @@ def test_preprocess_common_imperial_length_input() -> None:
     assert processed == "6.3  foot   3.3 inch"
 
 
-def test_char_stream() -> None:
-    """Test whether the CharStream iteration works properly."""
-    stream = CharStream(" 1.2345 big   string 3.13")
-    string = "".join(stream)
-    assert string == " 1.2345 big   string 3.13"
-
-
 def test_float_token() -> None:
     float_token = FloatToken("3.393", 0)
     assert float_token.to_float() == 3.393

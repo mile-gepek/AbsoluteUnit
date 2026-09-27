@@ -76,6 +76,7 @@ class CharStream:
     def peek_first(self) -> str | None:
         if self._i >= len(self._string):
             return None
+
         return self._string[self._i]
 
     def peek_second(self) -> str | None:
@@ -98,12 +99,6 @@ class CharStream:
     def advance(self) -> None:
         if self._i < len(self._string):
             self._i += 1
-
-    def __next__(self) -> str:
-        char = self.bump()
-        if char is None:
-            raise StopIteration
-        return char
 
     def tokenize(self) -> Generator[Token]:
         """
