@@ -17,6 +17,8 @@ from pydantic import (
     ValidationError,
 )
 
+from absolute_unit import parsing
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -106,7 +108,7 @@ async def get_exchange_rates(
             resp_json = await resp.json()  # pyright: ignore[reportAny]
 
     try:
-        response_model = CurrencyApiResponse.model_validate(resp_json)
+        response_model = CurrencyApiResponse(**resp_json, base_currency=base_currency)
         return response_model
     except ValidationError as e:
         logger.info(f'Call to currencyapi endpoint "latest" is missing key: "{e}"')
@@ -117,7 +119,14 @@ def define_exchange_rates(
 ) -> None:
     clear_ureg_cached_currencies(unit_registry, tuple(exchange_rates.keys()))
     clear_currencies(unit_registry, base_currency)
-    unit_registry.define(f"{base_currency} = [currency] = {base_currency.lower()}")
+
+    currency_symbol = parsing.currency_code_map.get(base_currency.upper())
+    base_currency_definition = f"{base_currency.lower()} = [currency] = "
+    if currency_symbol is not None:
+        base_currency_definition += f"{currency_symbol} = "
+    base_currency_definition += f"{base_currency.upper()}"
+    unit_registry.define(base_currency_definition)
+
     for currency, exchange_rate in exchange_rates.items():
         if currency == base_currency:
             continue
@@ -126,9 +135,15 @@ def define_exchange_rates(
         # The api gives back rates for converting the base currency into the target one,
         # so to define the target currency we take the reciprocal
         reverse_exchange_rate = 1 / exchange_rate
-        unit_registry.define(
-            f"{currency} = {reverse_exchange_rate} * {base_currency} = {currency.lower()}"
+
+        currency_symbol = parsing.currency_code_map.get(currency.upper())
+        currency_definition = (
+            f"{currency.lower()} = {reverse_exchange_rate} * {base_currency} = "
         )
+        if currency_symbol is not None:
+            currency_definition += f"{currency_symbol} = "
+        currency_definition += f"{currency.upper()}"
+        unit_registry.define(currency_definition)
 
 
 class CurrencyCog(commands.Cog):

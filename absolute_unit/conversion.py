@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import pint
 from pint import UnitRegistry
 from pint.facets.plain import PlainQuantity
@@ -5,6 +7,7 @@ from pint.util import UnitsContainer
 from result import Err, Ok, Result
 
 from absolute_unit import parsing
+from absolute_unit.parsing import EvaluationError, Parser
 
 metric_to_imperial = {
     "kilometer": "mile",
@@ -112,15 +115,19 @@ def infer_target_unit(
 
 
 def get_target_unit(
-    target: str,
+    target_unit: str,
     unit_registry: UnitRegistry,
-) -> Result[UnitsContainer, InvalidUnitError]:
-    try:
-        unit_quantity = unit_registry.Quantity(target)
-    except pint.errors.UndefinedUnitError as e:
-        units = ", ".join(e.unit_names)
-        return Err(InvalidUnitError(units))
-    unit_items = unit_quantity.unit_items()
+) -> Result[UnitsContainer, Sequence[parsing.ParsingError | EvaluationError]]:
+    # this is hacky
+    parser = Parser(unit_registry, parsing.ParserMode.Strict)
+    parsed_units = parser.parse(target_unit)
+    if isinstance(parsed_units, Err):
+        return parsed_units
+    evaluated = parsed_units.ok().evaluate(unit_registry)
+    if isinstance(evaluated, Err):
+        return evaluated
+    quantity = unit_registry.Quantity(evaluated.ok())
+    unit_items = quantity.unit_items()
     return Ok(UnitsContainer(unit_items))
 
 

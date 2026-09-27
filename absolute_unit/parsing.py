@@ -50,11 +50,14 @@ EOL = _EOL()
 
 
 currency_code_map = {
-    "$": " USD",
-    "€": " EUR",
-    "£": " GBP",
-    "¥": " JPY",
+    "$": "USD",
+    "€": "EUR",
+    "£": "GBP",
+    "¥": "JPY",
 }
+# two way map so we can define currency symbols in the unit registry
+for symbol, code in currency_code_map.copy().items():
+    currency_code_map[code] = symbol
 
 
 class CharStream:

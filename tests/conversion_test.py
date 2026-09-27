@@ -7,6 +7,7 @@ from absolute_unit.conversion import (
     DimensionalityError,
     UnitInferError,
     convert,
+    get_target_unit,
     imperial_to_metric,
     infer_target_unit,
     metric_to_imperial,
@@ -71,6 +72,15 @@ def test_infer_target_unit_mixed_metric_and_imperial_speed(
 
     assert isinstance(result, Err)
     assert isinstance(result.err(), UnitInferError)
+
+
+def test_get_target_unit(unit_registry: UnitRegistry) -> None:
+    target_input = "5km / 3J**2"
+    target_unit = get_target_unit(target_input, unit_registry)
+    assert isinstance(target_unit, Ok)
+    target_unit = target_unit.ok()
+    expected_target = UnitsContainer({"kilometer": 1, "joule": 2})
+    assert target_unit == expected_target
 
 
 @pytest.mark.parametrize(

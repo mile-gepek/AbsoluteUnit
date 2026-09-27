@@ -14,7 +14,7 @@ from result import Err
 from absolute_unit import conversion, currencies
 from absolute_unit.config import Config, Settings
 from absolute_unit.logging import DisnakeHandler, setup_logging
-from absolute_unit.parsing import ParserMode
+from absolute_unit.parsing import ParserMode, format_errors
 
 logger = logging.getLogger(__name__)
 
@@ -182,8 +182,11 @@ class ConversionCog(commands.Cog):
                     target, self.bot.unit_registry
                 )
                 if isinstance(target_unit_result, Err):
-                    error = target_unit_result.err()
-                    error_message += f"Target unit errors:```\n{error}\n```"
+                    errors = target_unit_result.err()
+                    errors_formatted = format_errors(errors, len(target))
+                    error_message += (
+                        f"Target unit errors:```\n{target}\n{errors_formatted}\n```"
+                    )
             return await interaction.send(error_message, ephemeral=ephemeral_errors)
         expression = expression_result.ok()
 
@@ -201,8 +204,11 @@ class ConversionCog(commands.Cog):
                     target, self.bot.unit_registry
                 )
                 if isinstance(target_unit_result, Err):
-                    error = target_unit_result.err()
-                    error_message += f"Target unit errors:```\n{error}\n```"
+                    errors = target_unit_result.err()
+                    errors_formatted = format_errors(errors, len(target))
+                    error_message += (
+                        f"Target unit errors:```\n{target}\n{errors_formatted}\n```"
+                    )
             output += error_message
             return await interaction.send(output, ephemeral=ephemeral_errors)
         evaluated: PlainQuantity[float] = evaluation_result.ok().to_reduced_units()  # pyright: ignore [reportUnknownVariableType, reportUnknownMemberType]
@@ -211,15 +217,19 @@ class ConversionCog(commands.Cog):
             target_unit_result = conversion.infer_target_unit(
                 evaluated, self.bot.unit_registry
             )
+            if isinstance(target_unit_result, Err):
+                error = target_unit_result.err()
+                output += f"Target unit errors:```\n{error}\n```"
+                return await interaction.send(output, ephemeral=ephemeral_errors)
         else:
             target_unit_result = conversion.get_target_unit(
                 target, self.bot.unit_registry
             )
-
-        if isinstance(target_unit_result, Err):
-            error = target_unit_result.err()
-            output += f"Target unit errors:```\n{error}\n```"
-            return await interaction.send(output, ephemeral=ephemeral_errors)
+            if isinstance(target_unit_result, Err):
+                errors = target_unit_result.err()
+                errors_formatted = format_errors(errors, len(target))
+                output += f"Target unit errors:```\n{target}\n{errors_formatted}\n```"
+                return await interaction.send(output, ephemeral=ephemeral_errors)
         target_unit = target_unit_result.ok()
 
         conversion_result = conversion.convert(evaluated, target_unit)
