@@ -144,7 +144,7 @@ class CharStream:
                     token = ParenToken(ParenType.L_BRACE, char_index)
                 case "}":
                     token = ParenToken(ParenType.R_BRACE, char_index)
-                case char if char in string.ascii_letters:
+                case char if char in string.ascii_letters + "°":
                     unit = self.eat_unit(char)
                     token = UnitToken(unit, char_index)
                 case char if char in currency_code_map:

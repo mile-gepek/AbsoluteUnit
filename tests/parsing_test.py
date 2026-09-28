@@ -131,6 +131,11 @@ def test_unit_token_consume() -> None:
     assert isinstance(token, UnitToken) and token.token == "km"
 
 
+def test_unit_token_degree() -> None:
+    token = next(tokenize("°C"))
+    assert isinstance(token, UnitToken) and token.token == "°C"
+
+
 def test_paren_token_consume() -> None:
     stream = CharStream("()")
     left, right = stream.tokenize()
