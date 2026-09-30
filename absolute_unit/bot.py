@@ -46,7 +46,6 @@ class Bot(commands.InteractionBot):
         self,
         settings: Settings,
         config: Config,
-        client: commands.InteractionBot,
         unit_registry: UnitRegistry,
     ) -> None:
         super().__init__(test_guilds=config.test_guild_ids)
@@ -86,9 +85,8 @@ class Bot(commands.InteractionBot):
         settings = Settings.from_env().unwrap()
         config = Config.get_config().unwrap()
         setup_logging(config.log_level)
-        client = commands.InteractionBot(test_guilds=config.test_guild_ids)
         unit_registry = conversion.get_unit_registry()
-        return cls(settings, config, client, unit_registry)
+        return cls(settings, config, unit_registry)
 
 
 def is_admin[T]() -> Callable[[T], T]:
