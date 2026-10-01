@@ -3,6 +3,8 @@
 from collections import deque
 
 from pint import UnitRegistry
+from pint.facets.plain.objects import UnitsContainer
+from pytest import approx
 from result import Err, Ok
 
 from absolute_unit.parsing import (
@@ -741,6 +743,18 @@ def test_constant_in_exponent(unit_registry: UnitRegistry):
         unit_mock(unit_registry, "pi"),
     )
     assert result.ok() == mock_result
+
+
+def test_constant_in_exponent_dimensionality(unit_registry: UnitRegistry) -> None:
+    parser = Parser(unit_registry)
+    result = parser.parse("e**pi - pi")
+    assert isinstance(result, Ok)
+    dimension = result.ok().dimensionality()
+    assert isinstance(dimension, Ok)
+    assert dimension.ok() == UnitsContainer()
+    evaluated = result.ok().evaluate()
+    assert isinstance(evaluated, Ok)
+    assert evaluated.ok() == approx(19.9990999)
 
 
 def test_parsing_currency_symbols(currency_unit_registry: UnitRegistry) -> None:

@@ -453,18 +453,17 @@ class Expression(abc.ABC):
         return (self.start(), self.end())
 
     @abc.abstractmethod
-    def dimensionality(self) -> pint.util.UnitsContainer: ...
+    def dimensionality(
+        self,
+    ) -> Result[pint.util.UnitsContainer, list[EvaluationError]]: ...
 
     @abc.abstractmethod
     def dimensionless(self) -> bool: ...
 
     @abc.abstractmethod
-    def evaluate(
-        self,
-        unit_registry: pint.UnitRegistry,
-    ) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
+    def evaluate(self) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
         """
-        Evaluate this expression with the global UnitRegistry and context settings.
+        Evaluate this expression.
         """
 
     @override
@@ -521,31 +520,43 @@ class Binary(Expression):
         return self.right.end()
 
     @override
-    def dimensionality(self) -> pint.util.UnitsContainer:
-        match self.op:
-            case OperatorType.MUL:
-                return self.left.dimensionality() * self.right.dimensionality()
-            case OperatorType.DIV:
-                return self.left.dimensionality() / self.right.dimensionality()
-            case OperatorType.EXP:
-                assert isinstance(self.right, Float)
-                return self.left.dimensionality() ** self.right.value
+    def dimensionality(self) -> Result[pint.util.UnitsContainer, list[EvaluationError]]:
+        left_dim = self.left.dimensionality()
+        right_dim = self.right.dimensionality()
+        match (left_dim, right_dim):
+            case Ok(left_dim), Ok(right_dim):
+                match self.op:
+                    case OperatorType.MUL:
+                        return Ok(left_dim * right_dim)
+                    case OperatorType.DIV:
+                        return Ok(left_dim / right_dim)
+                    case OperatorType.EXP:
+                        right_eval = self.right.evaluate()
+                        if isinstance(right_eval, Err):
+                            return right_eval
+                        assert self.right.dimensionless()
+                        right_eval = right_eval.ok()
+                        if isinstance(right_eval, PlainQuantity):
+                            right_eval = right_eval.magnitude
+                        return Ok(left_dim**right_eval)
+                    case _:
+                        return Ok(left_dim)
             case _:
-                return self.left.dimensionality()
+                left_err = left_dim.err() or []
+                right_err = right_dim.err() or []
+                return Err(left_err + right_err)
 
     @override
     def dimensionless(self) -> bool:
-        return not bool(self.dimensionality())
+        return self.dimensionality() == Ok(UnitsContainer())
 
     @override
-    def evaluate(
-        self, unit_registry: pint.UnitRegistry
-    ) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
+    def evaluate(self) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
         op = _BINARY_OP_MAP[self.op]
         errors: list[EvaluationError] = []
 
-        left = self.left.evaluate(unit_registry)
-        right = self.right.evaluate(unit_registry)
+        left = self.left.evaluate()
+        right = self.right.evaluate()
         if isinstance(left, Err):
             errors.extend(left.err())
         if isinstance(right, Err):
@@ -640,7 +651,7 @@ class Unary(Expression):
         return self.value.end()
 
     @override
-    def dimensionality(self) -> pint.util.UnitsContainer:
+    def dimensionality(self) -> Result[pint.util.UnitsContainer, list[EvaluationError]]:
         return self.value.dimensionality()
 
     @override
@@ -648,10 +659,8 @@ class Unary(Expression):
         return self.value.dimensionless()
 
     @override
-    def evaluate(
-        self, unit_registry: pint.UnitRegistry
-    ) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
-        value = self.value.evaluate(unit_registry)
+    def evaluate(self) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
+        value = self.value.evaluate()
         if isinstance(value, Err):
             return value
         op = _UNARY_OP_MAP[self.op]
@@ -728,17 +737,15 @@ class Float(Primary):
         return self._value
 
     @override
-    def dimensionality(self) -> pint.util.UnitsContainer:
-        return UnitsContainer()
+    def dimensionality(self) -> Result[pint.util.UnitsContainer, list[EvaluationError]]:
+        return Ok(UnitsContainer())
 
     @override
     def dimensionless(self) -> bool:
         return True
 
     @override
-    def evaluate(
-        self, unit_registry: pint.UnitRegistry
-    ) -> Result[float, list[EvaluationError]]:
+    def evaluate(self) -> Result[float, list[EvaluationError]]:
         return Ok(self._value)
 
     @override
@@ -803,17 +810,15 @@ class Unit(Primary):
                 return Err(UnexpectedTokenError(token, expected="number"))
 
     @override
-    def dimensionality(self) -> pint.util.UnitsContainer:
-        return self.unit.dimensionality
+    def dimensionality(self) -> Result[pint.util.UnitsContainer, list[EvaluationError]]:
+        return Ok(self.unit.dimensionality)
 
     @override
     def dimensionless(self) -> bool:
         return self.unit.dimensionless
 
     @override
-    def evaluate(
-        self, unit_registry: pint.UnitRegistry
-    ) -> Result[PlainQuantity[float], list[EvaluationError]]:
+    def evaluate(self) -> Result[PlainQuantity[float], list[EvaluationError]]:
         return Ok(self.unit)
 
     @override
@@ -854,7 +859,7 @@ class Group(Expression):
         return self._end
 
     @override
-    def dimensionality(self) -> pint.util.UnitsContainer:
+    def dimensionality(self) -> Result[pint.util.UnitsContainer, list[EvaluationError]]:
         return self.expr.dimensionality()
 
     @override
@@ -862,10 +867,8 @@ class Group(Expression):
         return self.expr.dimensionless()
 
     @override
-    def evaluate(
-        self, unit_registry: pint.UnitRegistry
-    ) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
-        return self.expr.evaluate(unit_registry)
+    def evaluate(self) -> Result[PlainQuantity[float] | float, list[EvaluationError]]:
+        return self.expr.evaluate()
 
     @override
     def __str__(self) -> str:

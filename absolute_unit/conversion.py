@@ -123,7 +123,7 @@ def get_target_unit(
     parsed_units = parser.parse(target_unit)
     if isinstance(parsed_units, Err):
         return parsed_units
-    evaluated = parsed_units.ok().evaluate(unit_registry)
+    evaluated = parsed_units.ok().evaluate()
     if isinstance(evaluated, Err):
         return evaluated
     quantity = unit_registry.Quantity(evaluated.ok())
@@ -161,7 +161,7 @@ def evaluate_expression(
     expression: parsing.Expression,
     unit_registry: UnitRegistry,
 ) -> Result[PlainQuantity[float], str]:
-    evaluation_result = expression.evaluate(unit_registry)
+    evaluation_result = expression.evaluate()
     if isinstance(evaluation_result, Err):
         errors = evaluation_result.err_value
         errors_formatted = parsing.format_errors(errors, expression.end())
